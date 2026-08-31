@@ -1,0 +1,8 @@
+{
+  "name": "Standalone Finance Management System",
+  "description": "Enterprise HORECA transaction core and predictive financial analytics suite featuring Philippine Tax compliance (BIR 2550M/2307/1601-C/1702), Datarails FP&A consolidation & scenario modeling, Fleet Operations & Logistics telematics, separated Accounts Payable & Accounts Receivable with daily incremental overdue penalty tracking, Cash & Liquidity treasury management with Philippine Peso (₱) standardization, and unified multi-format export reporting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
