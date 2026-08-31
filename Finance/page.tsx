@@ -42,8 +42,7 @@ import {
   Smartphone,
   Copy,
   ChevronLeft,
-  ChevronRight,
-  Truck
+  ChevronRight
 } from "lucide-react";
 import PesoSign from "./components/PesoSign";
 import AccountsPayable, {
@@ -56,7 +55,6 @@ import AccountsReceivable, {
   INITIAL_AR_INVOICES,
   CollectionPaymentDetails
 } from "./components/AccountsReceivable";
-import FleetManagement from "./components/FleetManagement";
 import TaxManagement from "./components/TaxManagement";
 import Collection, { CollectionItem, INITIAL_COLLECTIONS } from "./components/Collection";
 import CashManagement from "./components/CashManagement";
@@ -3150,18 +3148,6 @@ export default function IntegratedFinancialSystem() {
              ============================================================================== */}
           {activeTab === "cash" && (
             <CashManagement
-              currentUser={currentUser}
-              isDataMasked={isDataMasked}
-              maskCurrency={maskCurrency}
-              maskField={maskField}
-            />
-          )}
-
-          {/* ==============================================================================
-              MODULE: FLEET OPERATIONS & LOGISTICS (SUBSYSTEM 5)
-             ============================================================================== */}
-          {activeTab === "fleet" && (
-            <FleetManagement
               currentUser={currentUser}
               isDataMasked={isDataMasked}
               maskCurrency={maskCurrency}
