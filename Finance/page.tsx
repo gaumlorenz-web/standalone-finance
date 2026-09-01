@@ -97,8 +97,36 @@ export default function IntegratedFinancialSystem() {
     }
   ];
 
-  const [systemUsers, setSystemUsers] = useState<SystemUser[]>(INITIAL_ACCOUNTS);
-  const [currentUser, setCurrentUser] = useState<SystemUser | null>(null);
+  const [systemUsers, setSystemUsers] = useState<SystemUser[]>(() => {
+    try {
+      const stored = localStorage.getItem("horeca_system_users");
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {
+      console.error("Failed to load users from localStorage", e);
+    }
+    return INITIAL_ACCOUNTS;
+  });
+
+  const [currentUser, setCurrentUser] = useState<SystemUser | null>(() => {
+    try {
+      const savedUser = localStorage.getItem("horeca_current_user");
+      const lastActivity = localStorage.getItem("horeca_last_activity");
+      if (savedUser) {
+        // If lastActivity exists, check if expired (15 mins = 900,000 ms)
+        if (lastActivity && Date.now() - Number(lastActivity) > 15 * 60 * 1000) {
+          localStorage.removeItem("horeca_current_user");
+          localStorage.removeItem("horeca_last_activity");
+          return null;
+        }
+        return JSON.parse(savedUser);
+      }
+    } catch (e) {
+      console.error("Failed to restore session from localStorage", e);
+    }
+    return null;
+  });
 
   // Login Form State
   const [loginEmail, setLoginEmail] = useState("");
@@ -127,13 +155,30 @@ export default function IntegratedFinancialSystem() {
   });
 
   // Session Inactivity Countdown (15 minutes = 900 seconds)
-  const [sessionSecondsLeft, setSessionSecondsLeft] = useState<number>(900);
+  const [sessionSecondsLeft, setSessionSecondsLeft] = useState<number>(() => {
+    try {
+      const lastActivity = localStorage.getItem("horeca_last_activity");
+      if (lastActivity) {
+        const elapsedSecs = Math.floor((Date.now() - Number(lastActivity)) / 1000);
+        if (elapsedSecs < 900) {
+          return 900 - elapsedSecs;
+        }
+      }
+    } catch (e) {}
+    return 900;
+  });
 
   // Super Admin Configured Unmask Data Password (Default: #S230117482)
   const [unmaskPassword, setUnmaskPassword] = useState<string>("#S230117482");
 
   // Sidebar Layout State (Supports Full Width or Icon-Only Collapsed Mode)
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("horeca_sidebar_collapsed") === "true";
+    } catch (e) {
+      return false;
+    }
+  });
 
   // Toast Notification State
   const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "info" | "warning" } | null>(null);
@@ -144,6 +189,31 @@ export default function IntegratedFinancialSystem() {
       setToastMessage(null);
     }, 4500);
   };
+
+  // LocalStorage Persistence Hooks
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_system_users", JSON.stringify(systemUsers));
+    } catch (e) {}
+  }, [systemUsers]);
+
+  useEffect(() => {
+    try {
+      if (currentUser) {
+        localStorage.setItem("horeca_current_user", JSON.stringify(currentUser));
+        localStorage.setItem("horeca_last_activity", Date.now().toString());
+      } else {
+        localStorage.removeItem("horeca_current_user");
+        localStorage.removeItem("horeca_last_activity");
+      }
+    } catch (e) {}
+  }, [currentUser]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_sidebar_collapsed", isSidebarCollapsed ? "true" : "false");
+    } catch (e) {}
+  }, [isSidebarCollapsed]);
 
   // ==========================================
   // SESSION TIMEOUT LISTENER & COUNTDOWN (15 MINS)
@@ -163,6 +233,9 @@ export default function IntegratedFinancialSystem() {
 
     const resetInactivity = () => {
       setSessionSecondsLeft(900); // Reset to 15 minutes upon user interaction
+      try {
+        localStorage.setItem("horeca_last_activity", Date.now().toString());
+      } catch (e) {}
     };
 
     window.addEventListener("mousemove", resetInactivity);
@@ -390,7 +463,12 @@ export default function IntegratedFinancialSystem() {
     setCurrentUser(user);
     setIsDataMasked(true); // Mandatory: data is always masked after each login
     setSessionSecondsLeft(900); // 15 mins
-    setActiveTab("overview");
+    const savedTab = localStorage.getItem("horeca_active_tab");
+    if (savedTab && (savedTab !== "users" || user.role === "superadmin")) {
+      setActiveTab(savedTab);
+    } else {
+      setActiveTab("overview");
+    }
     setOtpState({
       step: "credentials",
       targetUser: null,
@@ -557,7 +635,21 @@ export default function IntegratedFinancialSystem() {
   // ==========================================
   // SYSTEM MODULES & CONNECTED STATE
   // ==========================================
-  const [activeTab, setActiveTab] = useState<string>("overview");
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    try {
+      const savedTab = localStorage.getItem("horeca_active_tab");
+      if (savedTab) return savedTab;
+    } catch (e) {}
+    return "overview";
+  });
+
+  useEffect(() => {
+    try {
+      if (activeTab) {
+        localStorage.setItem("horeca_active_tab", activeTab);
+      }
+    } catch (e) {}
+  }, [activeTab]);
   const [isDataMasked, setIsDataMasked] = useState<boolean>(true);
   const [adminPasswordInput, setAdminPasswordInput] = useState<string>("");
   const [isPassModalOpen, setIsPassModalOpen] = useState<boolean>(false);
