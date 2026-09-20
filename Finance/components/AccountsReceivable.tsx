@@ -67,6 +67,12 @@ export interface AccountsReceivableProps {
   invoices?: CustomerInvoice[];
   onAddInvoice?: (invoice: CustomerInvoice) => void;
   onExecuteCollection?: (collection: CollectionPaymentDetails) => void;
+  onBatchCollectAll?: (
+    uncollectedInvoices: CustomerInvoice[],
+    targetAccount: string,
+    paymentMethod: string,
+    referenceNo: string
+  ) => void;
   onRecordCollection?: (id: string, collectedAmount: number, targetAccount: string) => void;
   currentUser?: { role: string; name: string; email?: string } | null;
   isDataMasked?: boolean;
@@ -161,6 +167,7 @@ export default function AccountsReceivable({
   invoices: externalInvoices,
   onAddInvoice,
   onExecuteCollection,
+  onBatchCollectAll,
   onRecordCollection,
   currentUser,
   isDataMasked = false,
@@ -175,6 +182,13 @@ export default function AccountsReceivable({
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [selectedStatus, setSelectedStatus] = useState<string>("All");
   const [isNewInvoiceOpen, setIsNewInvoiceOpen] = useState(false);
+  const [isCollectAllModalOpen, setIsCollectAllModalOpen] = useState(false);
+  const [isSimulateModalOpen, setIsSimulateModalOpen] = useState(false);
+
+  // Batch Collect All Form State
+  const [batchTargetAccount, setBatchTargetAccount] = useState("1030 - Operating Bank Account - BDO Primary");
+  const [batchPaymentMethod, setBatchPaymentMethod] = useState<CustomerInvoice["paymentMethod"]>("Bank Transfer");
+  const [batchRefPrefix, setBatchRefPrefix] = useState(`BATCH-COL-${new Date().toISOString().slice(5, 10).replace("-", "")}`);
 
   // Enhanced Collection Modal State
   const [collectionTarget, setCollectionTarget] = useState<{
@@ -389,6 +403,87 @@ export default function AccountsReceivable({
     };
   }, [invoices]);
 
+  // Uncollected invoices for Batch "Collect All"
+  const uncollectedInvoices = useMemo(() => {
+    return invoices.filter((inv) => {
+      const remaining = Math.max(0, inv.amount - (inv.paidAmount || 0));
+      return inv.status !== "Collected / Settled" && remaining > 0;
+    });
+  }, [invoices]);
+
+  const totalBatchCollectible = useMemo(() => {
+    return uncollectedInvoices.reduce((sum, inv) => {
+      const stats = calculateOverdueStats(inv);
+      return sum + stats.totalCollectible;
+    }, 0);
+  }, [uncollectedInvoices]);
+
+  const handleConfirmBatchCollectAll = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (uncollectedInvoices.length === 0) return;
+
+    if (onBatchCollectAll) {
+      onBatchCollectAll(
+        uncollectedInvoices,
+        batchTargetAccount,
+        batchPaymentMethod,
+        batchRefPrefix
+      );
+    } else {
+      setInternalInvoices((prev) =>
+        prev.map((i) => {
+          const stats = calculateOverdueStats(i);
+          return {
+            ...i,
+            paidAmount: i.amount + stats.incrementalLateCharge,
+            status: "Collected / Settled" as const,
+            dailyPenaltyRatePercent: 0
+          };
+        })
+      );
+    }
+
+    setIsCollectAllModalOpen(false);
+  };
+
+  const handleQuickSimulateAR = (preset: {
+    customer: string;
+    category: CustomerInvoice["category"];
+    amount: number;
+    terms: CustomerInvoice["terms"];
+    paymentMethod: CustomerInvoice["paymentMethod"];
+    notes: string;
+  }) => {
+    const invoiceDateObj = new Date(CURRENT_SYSTEM_DATE);
+    const daysToAdd = preset.terms === "Immediate" ? 0 : preset.terms === "Net 15" ? 15 : 30;
+    invoiceDateObj.setDate(invoiceDateObj.getDate() + daysToAdd);
+    const calculatedDueDate = invoiceDateObj.toISOString().split("T")[0];
+
+    const newInv: CustomerInvoice = {
+      id: `AR-2026-${Math.floor(200 + Math.random() * 800)}`,
+      customer: preset.customer,
+      tin: "990-124-781-000",
+      category: preset.category,
+      refNo: `SIM-${Math.floor(10000 + Math.random() * 90000)}`,
+      invoiceDate: CURRENT_SYSTEM_DATE,
+      terms: preset.terms,
+      dueDate: calculatedDueDate,
+      amount: preset.amount,
+      paidAmount: 0,
+      paymentMethod: preset.paymentMethod,
+      status: "Unpaid",
+      dailyPenaltyRatePercent: 0.05,
+      notes: preset.notes
+    };
+
+    if (onAddInvoice) {
+      onAddInvoice(newInv);
+    } else {
+      setInternalInvoices((prev) => [newInv, ...prev]);
+    }
+    setIsSimulateModalOpen(false);
+  };
+
   const handleCreateInvoice = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCustomer || !newAmount) return;
@@ -499,8 +594,20 @@ export default function AccountsReceivable({
             Records customer invoices, monitors outstanding balances, tracks customer payments, and manages collections.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ExportButton getExportData={getExportData} buttonLabel="Export AR Ledger" />
+
+          {/* SIMULATE INCOMING AR BUTTON (Requirement 3) */}
+          <button
+            type="button"
+            onClick={() => setIsSimulateModalOpen(true)}
+            className="bg-emerald-50 hover:bg-emerald-100 text-[#157A4D] border border-emerald-300 px-3 py-2 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
+            title="Simulate incoming customer receivable to see reflection across modules"
+          >
+            <TrendingUp className="h-4 w-4 text-[#157A4D]" />
+            <span>Simulate Incoming AR</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsNewInvoiceOpen(true)}
@@ -751,7 +858,60 @@ export default function AccountsReceivable({
                 );
               })}
             </tbody>
+            <tfoot className="bg-[#F8F9F6] border-t-2 border-[#DFE1DB] text-xs font-['IBM_Plex_Mono'] font-bold text-[#1A1D21]">
+              <tr>
+                <td colSpan={5} className="p-3 text-right text-[#5C636F] uppercase">
+                  Register Totals ({filteredInvoices.length} Invoices):
+                </td>
+                <td className="p-3 text-right">
+                  {maskCurrency(filteredInvoices.reduce((s, i) => s + i.amount, 0))}
+                </td>
+                <td className="p-3 text-right text-[#B5281A]">
+                  +{maskCurrency(filteredInvoices.reduce((s, i) => s + calculateOverdueStats(i).incrementalLateCharge, 0))}
+                </td>
+                <td className="p-3 text-right text-[#157A4D] font-bold">
+                  {maskCurrency(filteredInvoices.reduce((s, i) => s + calculateOverdueStats(i).totalCollectible, 0))}
+                </td>
+                <td colSpan={2}></td>
+              </tr>
+            </tfoot>
           </table>
+        </div>
+
+        {/* Bottom Table Toolbar: Collect All Action & Uncollected Summary */}
+        <div className="p-4 border-t border-[#DFE1DB] bg-[#F8F9F6] flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 text-xs font-['IBM_Plex_Mono'] text-[#5C636F]">
+            <div className="p-1.5 rounded-md bg-emerald-100 text-[#157A4D]">
+              <CheckCircle2 className="h-4 w-4" />
+            </div>
+            <div>
+              <span className="text-[#1A1D21] font-bold">
+                {uncollectedInvoices.length} Uncollected Receivables
+              </span>
+              <span className="text-[#5C636F] ml-1.5">
+                (Total Collectible: <strong className="text-[#157A4D]">{maskCurrency(totalBatchCollectible)}</strong>)
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsCollectAllModalOpen(true)}
+            disabled={uncollectedInvoices.length === 0}
+            className={`px-4 py-2.5 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center space-x-2 transition-all shadow-xs ${
+              uncollectedInvoices.length > 0
+                ? "bg-[#157A4D] hover:bg-[#12633e] text-white cursor-pointer ring-2 ring-emerald-400/30"
+                : "bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed"
+            }`}
+            title="Collect all outstanding customer receivables into Treasury"
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            <span>
+              {uncollectedInvoices.length > 0
+                ? `Collect all (${uncollectedInvoices.length} • ${maskCurrency(totalBatchCollectible)})`
+                : "All Invoices Collected"}
+            </span>
+          </button>
         </div>
       </div>
 
@@ -1207,6 +1367,311 @@ export default function AccountsReceivable({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* BATCH COLLECT ALL MODAL (Requirement 2 & 3) */}
+      {isCollectAllModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 space-y-5 max-w-2xl w-full border border-[#DFE1DB] shadow-2xl my-8">
+            <div className="flex justify-between items-center border-b border-[#DFE1DB] pb-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 rounded-xl bg-[#157A4D]/10 flex items-center justify-center border border-[#157A4D]/20">
+                  <CheckCircle2 className="h-5 w-5 text-[#157A4D]" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base font-['Archivo'] text-[#1A1D21]">
+                    Batch Receivable Settlement (Collect All)
+                  </h3>
+                  <p className="text-xs text-[#5C636F]">
+                    Execute full collection on all {uncollectedInvoices.length} outstanding AR accounts simultaneously
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCollectAllModalOpen(false)}
+                className="text-[#5C636F] hover:text-[#1A1D21] p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Batch Overview Banner */}
+            <div className="p-4 bg-[#F8F9F7] rounded-xl border border-[#DFE1DB] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div>
+                <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] uppercase px-2 py-0.5 rounded bg-[#157A4D]/10 text-[#157A4D] border border-[#157A4D]/20">
+                  TOTAL BATCH INFLOW
+                </span>
+                <div className="text-2xl font-bold font-['IBM_Plex_Mono'] text-[#157A4D] mt-1">
+                  {maskCurrency(totalBatchCollectible)}
+                </div>
+                <div className="text-xs text-[#5C636F]">
+                  Settling <strong>{uncollectedInvoices.length} Invoices</strong> across Hotel, Corporate &amp; Dining
+                </div>
+              </div>
+
+              <div className="text-left sm:text-right text-xs font-['IBM_Plex_Mono'] text-[#5C636F]">
+                <div>Cross-Module Reflection:</div>
+                <div className="text-[#157A4D] font-bold">✓ General Ledger Cash Debit</div>
+                <div className="text-[#157A4D] font-bold">✓ Cash Management Pool Inflow</div>
+                <div className="text-[#157A4D] font-bold">✓ Collections Audit Registered</div>
+              </div>
+            </div>
+
+            {/* List of Invoices to be Collected */}
+            <div className="border border-[#DFE1DB] rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+              <table className="w-full text-left text-xs font-['IBM_Plex_Sans']">
+                <thead className="bg-[#F1F1ED] text-[#5C636F] font-['IBM_Plex_Mono'] text-[10px] uppercase sticky top-0">
+                  <tr>
+                    <th className="p-2.5">Invoice ID</th>
+                    <th className="p-2.5">Customer</th>
+                    <th className="p-2.5">Category</th>
+                    <th className="p-2.5 text-right">Balance Due</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#DFE1DB]">
+                  {uncollectedInvoices.map((inv) => {
+                    const stats = calculateOverdueStats(inv);
+                    return (
+                      <tr key={inv.id} className="hover:bg-slate-50">
+                        <td className="p-2.5 font-bold font-['IBM_Plex_Mono'] text-[#157A4D]">{inv.id}</td>
+                        <td className="p-2.5 font-medium text-[#1A1D21]">{maskField(inv.customer, "name")}</td>
+                        <td className="p-2.5 text-[#5C636F]">{inv.category}</td>
+                        <td className="p-2.5 text-right font-bold font-['IBM_Plex_Mono'] text-[#157A4D]">
+                          {maskCurrency(stats.totalCollectible)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <form onSubmit={handleConfirmBatchCollectAll} className="space-y-4 text-xs font-['IBM_Plex_Sans']">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-[#5C636F] font-bold mb-1 font-['IBM_Plex_Mono']">
+                    Deposit Destination Vault Account *
+                  </label>
+                  <select
+                    value={batchTargetAccount}
+                    onChange={(e) => setBatchTargetAccount(e.target.value)}
+                    className="w-full border border-[#DFE1DB] rounded-lg p-2.5 text-xs font-['IBM_Plex_Mono'] font-bold focus:outline-none focus:border-[#157A4D] bg-white"
+                  >
+                    <option value="1030 - Operating Bank Account - BDO Primary">
+                      1030 - Operating Bank Account - BDO Primary
+                    </option>
+                    <option value="1010 - Front Desk Cash Float">
+                      1010 - Front Desk Cash Float (Physical Cash)
+                    </option>
+                    <option value="1040 - Digital Payment Gateway Clearing">
+                      1040 - Digital Payment Gateway Clearing
+                    </option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[#5C636F] font-bold mb-1 font-['IBM_Plex_Mono']">
+                    Settlement Method *
+                  </label>
+                  <select
+                    value={batchPaymentMethod}
+                    onChange={(e) => setBatchPaymentMethod(e.target.value as any)}
+                    className="w-full border border-[#DFE1DB] rounded-lg p-2.5 text-xs font-bold focus:outline-none focus:border-[#157A4D] bg-white"
+                  >
+                    <option value="Bank Transfer">Bank Transfer (PESONet / InstaPay)</option>
+                    <option value="Credit Card">Credit Card Terminal Batch</option>
+                    <option value="GCash / Maya">GCash / Maya Merchant Batch</option>
+                    <option value="Cash / Petty">Cash Vault Settlement</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[#5C636F] font-bold mb-1 font-['IBM_Plex_Mono']">
+                  Batch Transaction Reference Code
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={batchRefPrefix}
+                  onChange={(e) => setBatchRefPrefix(e.target.value)}
+                  className="w-full border border-[#DFE1DB] rounded-lg p-2.5 font-['IBM_Plex_Mono'] text-xs focus:outline-none focus:border-[#157A4D] bg-white"
+                />
+              </div>
+
+              <div className="flex justify-end items-center gap-2.5 pt-3 border-t border-[#DFE1DB] font-['IBM_Plex_Mono']">
+                <button
+                  type="button"
+                  onClick={() => setIsCollectAllModalOpen(false)}
+                  className="px-4 py-2 border border-[#DFE1DB] rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-[#157A4D] hover:bg-[#12633e] text-white rounded-lg text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer shadow-xs"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>Execute Collect All ({maskCurrency(totalBatchCollectible)})</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* SIMULATE INCOMING AR MODAL (Requirement 3) */}
+      {isSimulateModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 space-y-5 max-w-xl w-full border border-[#DFE1DB] shadow-2xl my-8">
+            <div className="flex justify-between items-center border-b border-[#DFE1DB] pb-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 rounded-xl bg-emerald-50 flex items-center justify-center border border-emerald-200">
+                  <TrendingUp className="h-5 w-5 text-[#157A4D]" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base font-['Archivo'] text-[#1A1D21]">
+                    Simulate Incoming Accounts Receivable (AR)
+                  </h3>
+                  <p className="text-xs text-[#5C636F]">
+                    Quickly simulate receiving an AR invoice to test real-time cross-module synchronization
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSimulateModalOpen(false)}
+                className="text-[#5C636F] hover:text-[#1A1D21] p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Simulation Presets */}
+            <div className="space-y-2.5">
+              <span className="text-xs font-bold font-['IBM_Plex_Mono'] text-[#5C636F]">
+                SELECT SIMULATION PRESET SCENARIO:
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleQuickSimulateAR({
+                      customer: "Shangri-La Presidential Suite Checkout",
+                      category: "Hotel Guest Folio",
+                      amount: 48500,
+                      terms: "Immediate",
+                      paymentMethod: "Credit Card",
+                      notes: "4 nights presidential suite stay, laundry & room service charges"
+                    })
+                  }
+                  className="text-left p-3 rounded-xl border border-[#DFE1DB] hover:border-[#157A4D] hover:bg-emerald-50/50 transition-all cursor-pointer group"
+                >
+                  <div className="font-bold text-xs text-[#1A1D21] group-hover:text-[#157A4D]">
+                    🏨 Hotel Guest Checkout
+                  </div>
+                  <div className="text-sm font-bold font-['IBM_Plex_Mono'] text-[#157A4D] mt-1">
+                    {maskCurrency(48500)}
+                  </div>
+                  <div className="text-[10px] text-[#5C636F] mt-0.5">Category: Hotel Guest Folio (Immediate)</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleQuickSimulateAR({
+                      customer: "Philippine Airlines Crew Accommodation Folio",
+                      category: "Corporate City Ledger",
+                      amount: 142000,
+                      terms: "Net 30",
+                      paymentMethod: "Bank Transfer",
+                      notes: "Contracted airline flight crew 18 room-nights billing block"
+                    })
+                  }
+                  className="text-left p-3 rounded-xl border border-[#DFE1DB] hover:border-[#157A4D] hover:bg-emerald-50/50 transition-all cursor-pointer group"
+                >
+                  <div className="font-bold text-xs text-[#1A1D21] group-hover:text-[#157A4D]">
+                    🏢 Corporate City Ledger
+                  </div>
+                  <div className="text-sm font-bold font-['IBM_Plex_Mono'] text-[#157A4D] mt-1">
+                    {maskCurrency(142000)}
+                  </div>
+                  <div className="text-[10px] text-[#5C636F] mt-0.5">Category: Corporate City Ledger (Net 30)</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleQuickSimulateAR({
+                      customer: "Manila Bankers Association Gala Dinner",
+                      category: "Banquet & Catering",
+                      amount: 85000,
+                      terms: "Net 15",
+                      paymentMethod: "Bank Transfer",
+                      notes: "Grand Ballroom catering 150 pax dinner buffet & wine pairing"
+                    })
+                  }
+                  className="text-left p-3 rounded-xl border border-[#DFE1DB] hover:border-[#157A4D] hover:bg-emerald-50/50 transition-all cursor-pointer group"
+                >
+                  <div className="font-bold text-xs text-[#1A1D21] group-hover:text-[#157A4D]">
+                    🍽️ Banquet &amp; Catering
+                  </div>
+                  <div className="text-sm font-bold font-['IBM_Plex_Mono'] text-[#157A4D] mt-1">
+                    {maskCurrency(85000)}
+                  </div>
+                  <div className="text-[10px] text-[#5C636F] mt-0.5">Category: Banquet &amp; Catering (Net 15)</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleQuickSimulateAR({
+                      customer: "FastTrack Cold-Chain Logistics Freight",
+                      category: "Fleet Logistics Service",
+                      amount: 38000,
+                      terms: "Net 15",
+                      paymentMethod: "Bank Transfer",
+                      notes: "Refrigerated seafood transfer from subic bay port to central kitchen"
+                    })
+                  }
+                  className="text-left p-3 rounded-xl border border-[#DFE1DB] hover:border-[#157A4D] hover:bg-emerald-50/50 transition-all cursor-pointer group"
+                >
+                  <div className="font-bold text-xs text-[#1A1D21] group-hover:text-[#157A4D]">
+                    🚐 Fleet Logistics Cargo
+                  </div>
+                  <div className="text-sm font-bold font-['IBM_Plex_Mono'] text-[#157A4D] mt-1">
+                    {maskCurrency(38000)}
+                  </div>
+                  <div className="text-[10px] text-[#5C636F] mt-0.5">Category: Fleet Logistics Service (Net 15)</div>
+                </button>
+              </div>
+            </div>
+
+            {/* Impact Explanation Box */}
+            <div className="p-3.5 bg-[#F1F1ED] rounded-xl border border-[#DFE1DB] space-y-2 text-xs">
+              <span className="font-bold font-['IBM_Plex_Mono'] text-[#1A1D21] block">
+                How this simulates across connected modules:
+              </span>
+              <ul className="list-disc list-inside text-[#5C636F] space-y-1 text-[11px]">
+                <li><strong>General Ledger:</strong> Automatically logs Debit to Asset 1210 (City Ledger / AR) and Credit to Revenue 4010.</li>
+                <li><strong>Collections:</strong> Adds the customer invoice to the collection pipeline.</li>
+                <li><strong>Executive Dashboard:</strong> Updates total receivables due, aging buckets, and income forecasts.</li>
+                <li><strong>Cash Management:</strong> When "Collect All" is triggered, funds are converted into liquid operating bank or till cash assets.</li>
+              </ul>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-[#DFE1DB]">
+              <button
+                type="button"
+                onClick={() => setIsSimulateModalOpen(false)}
+                className="px-4 py-2 border border-[#DFE1DB] rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

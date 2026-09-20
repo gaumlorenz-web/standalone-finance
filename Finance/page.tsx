@@ -65,6 +65,8 @@ import AuditTrail, { AuditLogEntry } from "./components/AuditTrail";
 import BudgetRegressionForecast from "./components/BudgetRegressionForecast";
 import ExportButton from "./components/ExportButton";
 import UserManagement, { SystemUser } from "./components/UserManagement";
+import DashboardFinancialCharts from "./components/DashboardFinancialCharts";
+import DisbursementManagement, { DisbursementReceipt } from "./components/DisbursementManagement";
 import { INITIAL_LEDGER_POSTS } from "./data/hospitalityData";
 import loginHeroImage from "../src/assets/images/login_hero_image_1787844999408.jpg";
 
@@ -292,52 +294,79 @@ export default function IntegratedFinancialSystem() {
   };
 
   // ==========================================
-  // AUDIT TRAIL LOGGING CORE
+  // AUDIT TRAIL LOGGING CORE (PERSISTED + UNSEEN BADGE)
   // ==========================================
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([
-    {
-      id: "AUD-2026-001",
-      userId: "superAdmin@gmail.com",
-      userName: "Super Administrator",
-      userRole: "superadmin",
-      action: "SYSTEM_INITIALIZATION",
-      module: "General Ledger",
-      timestamp: "2026-08-19 08:00:15",
-      ipAddress: "192.168.1.100 (Docker Core)",
-      status: "SUCCESS",
-      description: "Hospitality Chart of Accounts & 4 Subsystems Transaction Core Initialized",
-      previousState: null,
-      newState: { coaAccountsCount: 22, initialLedgerEntriesCount: 7, database: "PostgreSQL 16" }
-    },
-    {
-      id: "AUD-2026-002",
-      userId: "admin@gmail.com",
-      userName: "Standard Administrator",
-      userRole: "admin",
-      action: "QUEUE_AP_INVOICE",
-      module: "AP / AR Module",
-      timestamp: "2026-08-19 09:12:44",
-      ipAddress: "192.168.1.104 (Chrome / macOS)",
-      status: "PENDING_APPROVAL",
-      description: "Submitted AP invoice for Meralco Commercial Power Grid (₱65,000)",
-      previousState: null,
-      newState: { id: "INV-9903", entityName: "Meralco Commercial Power Grid", amount: 65000, type: "AP" }
-    },
-    {
-      id: "AUD-2026-003",
-      userId: "superAdmin@gmail.com",
-      userName: "Super Administrator",
-      userRole: "superadmin",
-      action: "POST_GL_JOURNAL",
-      module: "General Ledger",
-      timestamp: "2026-08-19 09:30:00",
-      ipAddress: "192.168.1.100 (TLS 1.3)",
-      status: "SUCCESS",
-      description: "Posted multi-leg Hotel PMS Night Audit balancing journal (₱199,840)",
-      previousState: { totalDebits: 290000, totalCredits: 290000 },
-      newState: { totalDebits: 489840, totalCredits: 489840, ref: "JV-2026-PMS-01" }
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => {
+    try {
+      const stored = localStorage.getItem("horeca_audit_logs");
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {
+      console.error("Failed to load audit logs from localStorage", e);
     }
-  ]);
+    return [
+      {
+        id: "AUD-2026-001",
+        userId: "superAdmin@gmail.com",
+        userName: "Super Administrator",
+        userRole: "superadmin",
+        action: "SYSTEM_INITIALIZATION",
+        module: "General Ledger",
+        timestamp: "2026-08-19 08:00:15",
+        ipAddress: "192.168.1.100 (Docker Core)",
+        status: "SUCCESS",
+        description: "Hospitality Chart of Accounts & 4 Subsystems Transaction Core Initialized",
+        previousState: null,
+        newState: { coaAccountsCount: 22, initialLedgerEntriesCount: 7, database: "PostgreSQL 16" }
+      },
+      {
+        id: "AUD-2026-002",
+        userId: "admin@gmail.com",
+        userName: "Standard Administrator",
+        userRole: "admin",
+        action: "QUEUE_AP_INVOICE",
+        module: "AP / AR Module",
+        timestamp: "2026-08-19 09:12:44",
+        ipAddress: "192.168.1.104 (Chrome / macOS)",
+        status: "PENDING_APPROVAL",
+        description: "Submitted AP invoice for Meralco Commercial Power Grid (₱65,000)",
+        previousState: null,
+        newState: { id: "INV-9903", entityName: "Meralco Commercial Power Grid", amount: 65000, type: "AP" }
+      },
+      {
+        id: "AUD-2026-003",
+        userId: "superAdmin@gmail.com",
+        userName: "Super Administrator",
+        userRole: "superadmin",
+        action: "POST_GL_JOURNAL",
+        module: "General Ledger",
+        timestamp: "2026-08-19 09:30:00",
+        ipAddress: "192.168.1.100 (TLS 1.3)",
+        status: "SUCCESS",
+        description: "Posted multi-leg Hotel PMS Night Audit balancing journal (₱199,840)",
+        previousState: { totalDebits: 290000, totalCredits: 290000 },
+        newState: { totalDebits: 489840, totalCredits: 489840, ref: "JV-2026-PMS-01" }
+      }
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_audit_logs", JSON.stringify(auditLogs));
+    } catch (e) {}
+  }, [auditLogs]);
+
+  // Requirement 4: Track viewed audit trails so number disappears on view and reappears on new action
+  const [lastSeenAuditCount, setLastSeenAuditCount] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("horeca_last_seen_audit_count");
+      if (stored !== null) return Number(stored);
+    } catch (e) {}
+    return 3;
+  });
+
+  const unseenAuditCount = Math.max(0, auditLogs.length - lastSeenAuditCount);
 
   const logAuditEvent = (params: {
     action: string;
@@ -690,17 +719,90 @@ export default function IntegratedFinancialSystem() {
   };
 
   // 1. General Ledger Master Entries (Synchronized with All Subsystems)
-  const [journalEntries, setJournalEntries] = useState<any[]>(INITIAL_LEDGER_POSTS);
+  const [journalEntries, setJournalEntries] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem("horeca_journal_entries");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return INITIAL_LEDGER_POSTS;
+  });
 
   // 2. AP & AR Invoices State
-  const [apInvoices, setApInvoices] = useState<SupplierInvoice[]>(INITIAL_AP_INVOICES);
-  const [arInvoices, setArInvoices] = useState<CustomerInvoice[]>(INITIAL_AR_INVOICES);
-  const [collections, setCollections] = useState<CollectionItem[]>(INITIAL_COLLECTIONS);
-  const [apArInvoices, setApArInvoices] = useState([
-    { id: 'INV-8821', entityName: 'HighSeas Meat & Seafood Corp', tin: '123-456-789-000', type: 'AP', bankDetails: '9876-5432-1098', amount: 109760.00, status: 'Approved', category: 'F&B Provisions' },
-    { id: 'INV-9902', entityName: 'Global Luxury Tours & Corporate Travel', tin: '987-654-321-000', type: 'AR', bankDetails: '4567-8901-2345', amount: 85000.00, status: 'Approved', category: 'Corporate City Ledger' },
-    { id: 'INV-9903', entityName: 'Meralco Commercial Power Grid', tin: '111-222-333-000', type: 'AP', bankDetails: '1122-3344-5566', amount: 65000.00, status: 'Pending', category: 'Utilities' },
-  ]);
+  const [apInvoices, setApInvoices] = useState<SupplierInvoice[]>(() => {
+    try {
+      const saved = localStorage.getItem("horeca_ap_invoices");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return INITIAL_AP_INVOICES;
+  });
+
+  const [arInvoices, setArInvoices] = useState<CustomerInvoice[]>(() => {
+    try {
+      const saved = localStorage.getItem("horeca_ar_invoices");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return INITIAL_AR_INVOICES;
+  });
+
+  const [collections, setCollections] = useState<CollectionItem[]>(() => {
+    try {
+      const saved = localStorage.getItem("horeca_collections_items");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return INITIAL_COLLECTIONS;
+  });
+
+  const [apArInvoices, setApArInvoices] = useState(() => {
+    try {
+      const saved = localStorage.getItem("horeca_apar_invoices");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [
+      { id: 'INV-8821', entityName: 'HighSeas Meat & Seafood Corp', tin: '123-456-789-000', type: 'AP', bankDetails: '9876-5432-1098', amount: 109760.00, status: 'Approved', category: 'F&B Provisions' },
+      { id: 'INV-9902', entityName: 'Global Luxury Tours & Corporate Travel', tin: '987-654-321-000', type: 'AR', bankDetails: '4567-8901-2345', amount: 85000.00, status: 'Approved', category: 'Corporate City Ledger' },
+      { id: 'INV-9903', entityName: 'Meralco Commercial Power Grid', tin: '111-222-333-000', type: 'AP', bankDetails: '1122-3344-5566', amount: 65000.00, status: 'Pending', category: 'Utilities' },
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_journal_entries", JSON.stringify(journalEntries));
+    } catch (e) {}
+  }, [journalEntries]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_ap_invoices", JSON.stringify(apInvoices));
+    } catch (e) {}
+  }, [apInvoices]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_ar_invoices", JSON.stringify(arInvoices));
+    } catch (e) {}
+  }, [arInvoices]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_collections_items", JSON.stringify(collections));
+    } catch (e) {}
+  }, [collections]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_apar_invoices", JSON.stringify(apArInvoices));
+    } catch (e) {}
+  }, [apArInvoices]);
+
+  // Track viewed audit trails so number disappears on view and reappears on new action
+  useEffect(() => {
+    if (activeTab === "audit") {
+      setLastSeenAuditCount(auditLogs.length);
+      try {
+        localStorage.setItem("horeca_last_seen_audit_count", auditLogs.length.toString());
+      } catch (e) {}
+    }
+  }, [activeTab, auditLogs.length]);
   const [aparForm, setAparForm] = useState({ entityName: "", tin: "", bankDetails: "", type: "AP", amount: "", category: "General Operations" });
 
   // ==========================================
@@ -942,74 +1044,146 @@ export default function IntegratedFinancialSystem() {
   };
 
   // 3. Collection State
-  const [collectionData, setCollectionData] = useState([
-    { id: 'COL-101', payerName: 'Robert Smith (Room 402 Checkout)', phone: '+639170192834', email: 'robert.smith@example.com', cardNo: '4532-8819-2011-8821', checkNo: 'CHK-90211', amount: 35000.00, targetAccount: 'Front Desk Cash Float' },
-    { id: 'COL-102', payerName: 'Sarah Jenkins (Banquet Hall Deposit)', phone: '+639170148821', email: 's.jenkins@example.com', cardNo: '5412-9902-1100-1102', checkNo: 'EFT-88392', amount: 85000.00, targetAccount: 'Operating Bank Account' },
-  ]);
+  const [collectionData, setCollectionData] = useState(() => {
+    try {
+      const saved = localStorage.getItem("horeca_collection_data");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [
+      { id: 'COL-101', payerName: 'Robert Smith (Room 402 Checkout)', phone: '+639170192834', email: 'robert.smith@example.com', cardNo: '4532-8819-2011-8821', checkNo: 'CHK-90211', amount: 35000.00, targetAccount: 'Front Desk Cash Float' },
+      { id: 'COL-102', payerName: 'Sarah Jenkins (Banquet Hall Deposit)', phone: '+639170148821', email: 's.jenkins@example.com', cardNo: '5412-9902-1100-1102', checkNo: 'EFT-88392', amount: 85000.00, targetAccount: 'Operating Bank Account' },
+    ];
+  });
   const [collectionForm, setCollectionForm] = useState({ payerName: "", phone: "", email: "", cardNo: "", checkNo: "", amount: "", targetAccount: "Operating Bank Account" });
 
   // 4. Disbursement State
-  const [disbursementData, setDisbursementData] = useState([
-    { id: 'DISB-501', payee: 'Michael Brown (Executive Salary)', swift: 'BOFAPHMMXXX', nationalId: '112-482-990-110', netPay: 154000.00, token: 'AUTH-99201-X8', department: 'Executive Management' },
-    { id: 'DISB-502', payee: 'Pacific Linens & Laundry Logistics', swift: 'CHASPHM2XXX', nationalId: '441-209-912-000', netPay: 34100.00, token: 'AUTH-10293-Z2', department: 'Housekeeping' },
-  ]);
+  const [disbursementData, setDisbursementData] = useState(() => {
+    try {
+      const saved = localStorage.getItem("horeca_disbursements");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [
+      { id: 'DISB-501', payee: 'Michael Brown (Executive Salary)', swift: 'BOFAPHMMXXX', nationalId: '112-482-990-110', netPay: 154000.00, token: 'AUTH-99201-X8', department: 'Executive Management' },
+      { id: 'DISB-502', payee: 'Pacific Linens & Laundry Logistics', swift: 'CHASPHM2XXX', nationalId: '441-209-912-000', netPay: 34100.00, token: 'AUTH-10293-Z2', department: 'Housekeeping' },
+    ];
+  });
   const [disbursementForm, setDisbursementForm] = useState({ payee: "", swift: "", nationalId: "", netPay: "", department: "General Operations" });
 
   // 5. Budget Management State
-  const [budgets, setBudgets] = useState([
-    { id: "BGT-01", department: "Kitchen & F&B Operations", allocated: 650000, spent: 395000 },
-    { id: "BGT-02", department: "Front Office & Hotel Operations", allocated: 450000, spent: 220000 },
-    { id: "BGT-03", department: "Housekeeping & Facility Maintenance", allocated: 300000, spent: 175000 },
-    { id: "BGT-04", department: "Executive & Administrative Core", allocated: 500000, spent: 340000 },
-  ]);
+  const [budgets, setBudgets] = useState(() => {
+    try {
+      const saved = localStorage.getItem("horeca_budgets");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [
+      { id: "BGT-01", department: "Kitchen & F&B Operations", allocated: 650000, spent: 395000 },
+      { id: "BGT-02", department: "Front Office & Hotel Operations", allocated: 450000, spent: 220000 },
+      { id: "BGT-03", department: "Housekeeping & Facility Maintenance", allocated: 300000, spent: 175000 },
+      { id: "BGT-04", department: "Executive & Administrative Core", allocated: 500000, spent: 340000 },
+    ];
+  });
   const [budgetForm, setBudgetForm] = useState({ department: "", allocated: "" });
 
   // 6. Cash Management & Liquidity Pool
-  const [cashPool, setCashPool] = useState({ bankOperating: 2450000, pettyCash: 185000 });
+  const [cashPool, setCashPool] = useState(() => {
+    try {
+      const saved = localStorage.getItem("horeca_cash_pool");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return { bankOperating: 2450000, pettyCash: 185000 };
+  });
 
   // 7. Tax Management State
-  const [taxRecords, setTaxRecords] = useState([
-    { id: "TAX-2026-Q2", type: "Value Added Tax (VAT 12%)", taxableAmount: 1450000, taxDue: 174000, status: "Pending" },
-    { id: "TAX-2026-WHT", type: "Expanded Withholding Tax (2% Goods)", taxableAmount: 580000, taxDue: 11600, status: "Remitted" },
-    { id: "TAX-2026-COMP", type: "Compensation Withholding Tax (15-20%)", taxableAmount: 225000, taxDue: 33750, status: "Remitted" },
-  ]);
+  const [taxRecords, setTaxRecords] = useState(() => {
+    try {
+      const saved = localStorage.getItem("horeca_tax_records");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [
+      { id: "TAX-2026-Q2", type: "Value Added Tax (VAT 12%)", taxableAmount: 1450000, taxDue: 174000, status: "Pending" },
+      { id: "TAX-2026-WHT", type: "Expanded Withholding Tax (2% Goods)", taxableAmount: 580000, taxDue: 11600, status: "Remitted" },
+      { id: "TAX-2026-COMP", type: "Compensation Withholding Tax (15-20%)", taxableAmount: 225000, taxDue: 33750, status: "Remitted" },
+    ];
+  });
   const [taxForm, setTaxForm] = useState({ type: "Value Added Tax (VAT 12%)", rate: 0.12, taxableAmount: "" });
 
-  // 8. Pending Approvals Queue
-  const [pendingApprovals, setPendingApprovals] = useState<any[]>([
-    {
-      id: "REQ-201",
-      actionType: "CREATE_AP_AR",
-      requestedBy: "Standard Administrator",
-      timestamp: "2026-08-19 14:15",
-      module: "AP / AR Module",
-      payload: {
-        id: "INV-9903",
-        entityName: "Meralco Commercial Power Grid",
-        tin: "111-222-333-000",
-        type: "AP",
-        bankDetails: "1122-3344-5566",
-        amount: 65000,
-        status: "Pending",
-        category: "Utilities & Electricity"
+  // 8. Pending Approvals Queue (Persisted)
+  const [pendingApprovals, setPendingApprovals] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem("horeca_pending_approvals");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [
+      {
+        id: "REQ-201",
+        actionType: "CREATE_AP_AR",
+        requestedBy: "Standard Administrator",
+        timestamp: "2026-08-19 14:15",
+        module: "AP / AR Module",
+        payload: {
+          id: "INV-9903",
+          entityName: "Meralco Commercial Power Grid",
+          tin: "111-222-333-000",
+          type: "AP",
+          bankDetails: "1122-3344-5566",
+          amount: 65000,
+          status: "Pending",
+          category: "Utilities & Electricity"
+        },
+        impactSummary: "Increases Outstanding AP by ₱65,000 and posts balanced GL debit to 5220 - Electricity Utilities."
       },
-      impactSummary: "Increases Outstanding AP by ₱65,000 and posts balanced GL debit to 5220 - Electricity Utilities."
-    },
-    {
-      id: "REQ-202",
-      actionType: "ADD_BUDGET",
-      requestedBy: "Standard Administrator",
-      timestamp: "2026-08-19 15:40",
-      module: "Budget Management",
-      payload: {
-        id: "BGT-05",
-        department: "Spa & Wellness Recreation",
-        allocated: 200000,
-        spent: 0
-      },
-      impactSummary: "Establishes a new ₱200,000 departmental spending budget."
-    }
-  ]);
+      {
+        id: "REQ-202",
+        actionType: "ADD_BUDGET",
+        requestedBy: "Standard Administrator",
+        timestamp: "2026-08-19 15:40",
+        module: "Budget Management",
+        payload: {
+          id: "BGT-05",
+          department: "Spa & Wellness Recreation",
+          allocated: 200000,
+          spent: 0
+        },
+        impactSummary: "Establishes a new ₱200,000 departmental spending budget."
+      }
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_collection_data", JSON.stringify(collectionData));
+    } catch (e) {}
+  }, [collectionData]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_disbursements", JSON.stringify(disbursementData));
+    } catch (e) {}
+  }, [disbursementData]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_budgets", JSON.stringify(budgets));
+    } catch (e) {}
+  }, [budgets]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_cash_pool", JSON.stringify(cashPool));
+    } catch (e) {}
+  }, [cashPool]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_tax_records", JSON.stringify(taxRecords));
+    } catch (e) {}
+  }, [taxRecords]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_pending_approvals", JSON.stringify(pendingApprovals));
+    } catch (e) {}
+  }, [pendingApprovals]);
 
   // Handle Masking Toggle
   const handleToggleMasking = () => {
@@ -1405,6 +1579,64 @@ export default function IntegratedFinancialSystem() {
         action: "CREATE_AP_INVOICE",
         module: "Accounts Payable",
         description: `Approved supplier invoice ${payload.id} for ${payload.vendor} (₱${Number(payload.amount).toLocaleString()})`,
+        newState: { invoice: payload, glLines }
+      });
+    }
+
+    if (actionType === "CREATE_AR_INVOICE") {
+      setArInvoices((prev) => [{ ...payload, status: "Unpaid" as const }, ...prev]);
+      setApArInvoices((prev) => [
+        {
+          id: payload.id,
+          entityName: payload.customer,
+          tin: payload.tin || "123-456-789-000",
+          type: "AR",
+          bankDetails: payload.refNo || "Corporate City Ledger",
+          amount: Number(payload.amount),
+          status: "Approved",
+          category: payload.category
+        },
+        ...prev
+      ]);
+
+      const glLines = [
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: payload.invoiceDate || new Date().toISOString().split("T")[0],
+          ref: payload.id,
+          sourceModule: "Hotel PMS",
+          accountCode: "1210",
+          accountName: "1210 - City Ledger & Corporate Accounts Receivable",
+          memo: `Client Invoice: ${payload.customer} (${payload.category})`,
+          debit: Number(payload.amount),
+          credit: 0,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        },
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: payload.invoiceDate || new Date().toISOString().split("T")[0],
+          ref: payload.id,
+          sourceModule: "Hotel PMS",
+          accountCode: "4010",
+          accountName: "4010 - Hotel Room Revenue - Deluxe & Suites",
+          memo: `Corporate Booking Revenue: ${payload.customer}`,
+          debit: 0,
+          credit: Number(payload.amount),
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        }
+      ];
+
+      setJournalEntries((prev) => [...glLines, ...prev]);
+      showToast(`Cross-Module Sync: AR Customer Invoice ${payload.id} approved and balanced in General Ledger!`, "success");
+
+      logAuditEvent({
+        action: "CREATE_AR_INVOICE",
+        module: "Accounts Receivable",
+        description: `Approved customer invoice ${payload.id} for ${payload.customer} (₱${Number(payload.amount).toLocaleString()})`,
         newState: { invoice: payload, glLines }
       });
     }
@@ -1819,6 +2051,188 @@ export default function IntegratedFinancialSystem() {
   };
 
   // ==========================================
+  // AR BATCH COLLECT ALL HANDLER (CROSS-MODULE SYNC)
+  // ==========================================
+  const handleBatchCollectAll = (
+    param1: any,
+    param2?: string,
+    param3?: string,
+    param4?: string
+  ) => {
+    let collectedInvoices: CustomerInvoice[] = [];
+    let targetAccount = "1030 - Operating Bank Account - BDO Primary";
+    let paymentMethod = "Bank Transfer";
+    let referenceNumber = `BATCH-COL-${Date.now().toString().slice(-6)}`;
+    let totalCollectible = 0;
+
+    if (Array.isArray(param1)) {
+      collectedInvoices = param1;
+      targetAccount = param2 || targetAccount;
+      paymentMethod = param3 || paymentMethod;
+      referenceNumber = param4 ? `${param4}-${Date.now().toString().slice(-4)}` : referenceNumber;
+      totalCollectible = collectedInvoices.reduce((sum, inv) => {
+        const remaining = Math.max(0, inv.amount - (inv.paidAmount || 0));
+        // Overdue calculation
+        const due = new Date(inv.dueDate);
+        const cur = new Date();
+        const diffDays = Math.max(0, Math.floor((cur.getTime() - due.getTime()) / (1000 * 60 * 60 * 24)));
+        const dailyRate = (inv.dailyPenaltyRatePercent || 0.05) / 100;
+        const latePenalty = diffDays > 0 ? Math.round(remaining * dailyRate * diffDays) : 0;
+        return sum + remaining + latePenalty;
+      }, 0);
+    } else if (param1 && typeof param1 === "object") {
+      collectedInvoices = param1.collectedInvoices || [];
+      totalCollectible = param1.totalCollectible || 0;
+      targetAccount = param1.targetAccount || targetAccount;
+      paymentMethod = param1.paymentMethod || paymentMethod;
+      referenceNumber = param1.referenceNumber || referenceNumber;
+    }
+
+    if (!collectedInvoices || collectedInvoices.length === 0 || totalCollectible <= 0) return;
+
+    // 1. Update arInvoices: mark collected as "Collected / Settled" & freeze penalties
+    const collectedIds = new Set(collectedInvoices.map((i) => i.id));
+    setArInvoices((prev) =>
+      prev.map((inv) => {
+        if (collectedIds.has(inv.id)) {
+          const match = collectedInvoices.find((i) => i.id === inv.id);
+          const penalty = (match as any)?.latePenaltyAccumulated || 0;
+          const totalSettled = match ? inv.amount + penalty : inv.amount;
+          return {
+            ...inv,
+            paidAmount: totalSettled,
+            status: "Collected / Settled" as const,
+            dailyPenaltyRatePercent: 0
+          };
+        }
+        return inv;
+      })
+    );
+
+    // 2. Also update matching items in apArInvoices
+    setApArInvoices((prev) =>
+      prev.map((inv) =>
+        collectedIds.has(inv.id) ? { ...inv, status: "Collected / Settled" } : inv
+      )
+    );
+
+    // 3. Update Treasury Liquidity Pool (Cash Management)
+    const isPetty =
+      targetAccount.includes("1010") ||
+      targetAccount.includes("Front Desk") ||
+      targetAccount.includes("Petty") ||
+      paymentMethod === "Cash / Petty";
+
+    const prevCash = { ...cashPool };
+    const newCash = isPetty
+      ? { ...prevCash, pettyCash: prevCash.pettyCash + totalCollectible }
+      : { ...prevCash, bankOperating: prevCash.bankOperating + totalCollectible };
+
+    setCashPool(newCash);
+
+    // 4. Double-Entry Posting to General Ledger
+    const debitAccountCode = isPetty ? "1010" : "1030";
+    const debitAccountName = isPetty
+      ? "1010 - Front Desk Cash Float (Petty Cash)"
+      : "1030 - Operating Bank Account - BDO Primary";
+
+    const glDate = new Date().toISOString().split("T")[0];
+    const journalRef = referenceNumber || `BATCH-COL-${Date.now().toString().slice(-6)}`;
+
+    // Total principal vs total late interest surcharge recovered
+    const totalPrincipal = collectedInvoices.reduce((s, i) => s + (i.amount - (i.paidAmount || 0)), 0);
+    const totalLateIncrement = Math.max(0, totalCollectible - totalPrincipal);
+
+    const glLines: any[] = [
+      {
+        id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+        date: glDate,
+        ref: journalRef,
+        sourceModule: "Treasury",
+        accountCode: debitAccountCode,
+        accountName: debitAccountName,
+        memo: `Batch Settlement (${collectedInvoices.length} Invoices) via ${paymentMethod} to ${targetAccount}`,
+        debit: totalCollectible,
+        credit: 0,
+        status: "COMMITTED",
+        postedBy: currentUser?.name || "Administrator",
+        approvedBy: currentUser?.role === "superadmin" ? "Super Administrator" : "Finance Controller"
+      },
+      {
+        id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+        date: glDate,
+        ref: journalRef,
+        sourceModule: "Hotel PMS",
+        accountCode: "1210",
+        accountName: "1210 - City Ledger & Corporate Accounts Receivable",
+        memo: `Batch AR Liquidation (${collectedInvoices.length} Accounts: ${collectedInvoices.map((i) => i.id).join(", ")})`,
+        debit: 0,
+        credit: totalPrincipal,
+        status: "COMMITTED",
+        postedBy: currentUser?.name || "Administrator",
+        approvedBy: currentUser?.role === "superadmin" ? "Super Administrator" : "Finance Controller"
+      }
+    ];
+
+    if (totalLateIncrement > 0) {
+      glLines.push({
+        id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+        date: glDate,
+        ref: journalRef,
+        sourceModule: "Hotel PMS",
+        accountCode: "4200",
+        accountName: "4200 - Penalty & Overdue Interest Income",
+        memo: `Batch Late Surcharge Recovery (${collectedInvoices.length} accounts)`,
+        debit: 0,
+        credit: totalLateIncrement,
+        status: "COMMITTED",
+        postedBy: currentUser?.name || "Administrator",
+        approvedBy: currentUser?.role === "superadmin" ? "Super Administrator" : "Finance Controller"
+      });
+    }
+
+    setJournalEntries((prev) => [...glLines, ...prev]);
+
+    // 5. Append to Collections data register
+    const newCollectionBatch = {
+      id: `COL-${Math.floor(700 + Math.random() * 200)}`,
+      payerName: `Batch Settlement (${collectedInvoices.length} Clients)`,
+      phone: "+639170192834",
+      email: "treasury@horeca.com",
+      cardNo: referenceNumber,
+      checkNo: referenceNumber,
+      amount: totalCollectible,
+      targetAccount: isPetty ? "Front Desk Cash Float" : "Operating Bank Account"
+    };
+    setCollectionData((prev) => [newCollectionBatch, ...prev]);
+
+    // 6. Immutably log in Audit Trail
+    logAuditEvent({
+      action: "BATCH_COLLECT_ALL_AR",
+      module: "Accounts Receivable",
+      description: `Executed 'Collect All' batch settlement for ${collectedInvoices.length} AR invoices totaling ₱${totalCollectible.toLocaleString()} deposited to ${targetAccount} via ${paymentMethod} (Ref: ${referenceNumber})`,
+      previousState: {
+        uncollectedCount: collectedInvoices.length,
+        invoices: collectedInvoices.map((i) => ({ id: i.id, customer: i.customer, amount: i.amount })),
+        totalCollectible
+      },
+      newState: {
+        batchRef: referenceNumber,
+        settledInvoiceCount: collectedInvoices.length,
+        totalCollected: totalCollectible,
+        depositAccount: targetAccount,
+        paymentMethod,
+        glEntriesPosted: glLines.length
+      }
+    });
+
+    showToast(
+      `Batch Collection Executed: ₱${totalCollectible.toLocaleString()} across ${collectedInvoices.length} invoices deposited to Treasury & synchronized with GL!`,
+      "success"
+    );
+  };
+
+  // ==========================================
   // COLLECTION MODULE CROSS-SYNC HANDLERS
   // ==========================================
   const handleMatchToAr = (collection: CollectionItem, targetInvoice: CustomerInvoice | null) => {
@@ -2042,6 +2456,124 @@ export default function IntegratedFinancialSystem() {
       `Direct Collection Logged: ₱${newCollection.amount.toLocaleString()} (OR# ${newCollection.officialReceiptNo}) deposited to ${newCollection.targetVault}!`,
       "success"
     );
+  };
+
+  // ==========================================
+  // DISBURSEMENT HANDLERS (Cross-Module Sync)
+  // ==========================================
+  const handleExecuteDisbursement = (receipt: DisbursementReceipt) => {
+    // 1. Decrement Bank Operating or Petty Cash
+    const isPetty = receipt.deductedFromAccount.includes("1010") || receipt.deductedFromAccount.includes("Front Desk");
+    if (isPetty) {
+      setCashPool((prev) => ({
+        ...prev,
+        pettyCash: Math.max(0, prev.pettyCash - receipt.amount)
+      }));
+    } else {
+      setCashPool((prev) => ({
+        ...prev,
+        bankOperating: Math.max(0, prev.bankOperating - receipt.amount)
+      }));
+    }
+
+    // 2. Add to disbursementData list
+    const newDisb = {
+      id: receipt.id,
+      payee: receipt.payee,
+      swift: "BDO-PESONET",
+      nationalId: "****8892",
+      netPay: receipt.amount,
+      token: receipt.referenceToken,
+      department: receipt.department,
+      voucherNo: receipt.receiptNo,
+      purpose: receipt.purpose,
+      timestamp: receipt.timestamp,
+      status: "APPROVED_AND_DISBURSED"
+    };
+    setDisbursementData((prev) => [newDisb, ...prev]);
+
+    // 3. Update department budget spent
+    setBudgets((prev) =>
+      prev.map((b) =>
+        b.department.toLowerCase().includes(receipt.department.toLowerCase().split(" ")[0]) ||
+        receipt.department.toLowerCase().includes(b.department.toLowerCase().split(" ")[0])
+          ? { ...b, spent: b.spent + receipt.amount }
+          : b
+      )
+    );
+
+    // 4. Record General Ledger Journal Entry
+    const glDebitAccount = receipt.glDebitAccount || "5010 - Hotel Guest Supplies, Amenities & Maintenance";
+    const glCreditAccount = receipt.deductedFromAccount;
+    const debitCode = glDebitAccount.substring(0, 4);
+    const creditCode = glCreditAccount.substring(0, 4);
+
+    const newJournalEntry = {
+      id: `JE-DISB-${Math.floor(1000 + Math.random() * 9000)}`,
+      date: receipt.timestamp.split(" ")[0] || new Date().toISOString().split("T")[0],
+      reference: receipt.receiptNo,
+      description: `Disbursement: ${receipt.payee} - ${receipt.purpose}`,
+      status: "POSTED",
+      lines: [
+        {
+          accountCode: debitCode,
+          accountName: glDebitAccount,
+          debit: receipt.amount,
+          credit: 0
+        },
+        {
+          accountCode: creditCode,
+          accountName: glCreditAccount,
+          debit: 0,
+          credit: receipt.amount
+        }
+      ]
+    };
+    setJournalEntries((prev: any) => [newJournalEntry, ...prev]);
+
+    // 5. Log in Audit Trail
+    logAuditEvent({
+      action: "EXECUTE_DISBURSEMENT_RECEIPT",
+      module: "Disbursement Management",
+      description: `Issued disbursement receipt ${receipt.receiptNo} of ₱${receipt.amount.toLocaleString()} to ${receipt.payee} for ${receipt.department}. Deducted from ${receipt.deductedFromAccount} with budget cap remaining ₱${receipt.budgetCapRemaining.toLocaleString()}.`,
+      newState: receipt
+    });
+
+    showToast(
+      `Disbursement Committed: ₱${receipt.amount.toLocaleString()} paid to ${receipt.payee} (Receipt: ${receipt.receiptNo})`,
+      "success"
+    );
+  };
+
+  const handleUpdateDepartmentBudgets = (
+    allocations: { department: string; allocated: number; cap: number; percentage: number }[]
+  ) => {
+    // Update main budgets state in Finance/page.tsx
+    setBudgets((prev) =>
+      prev.map((b) => {
+        const match = allocations.find(
+          (a) =>
+            a.department.toLowerCase().includes(b.department.toLowerCase().split(" ")[0]) ||
+            b.department.toLowerCase().includes(a.department.toLowerCase().split(" ")[0])
+        );
+        if (match) {
+          return {
+            ...b,
+            allocated: match.allocated
+          };
+        }
+        return b;
+      })
+    );
+
+    logAuditEvent({
+      action: "AI_DEPARTMENT_BUDGET_ALLOCATION",
+      module: "Disbursement Management",
+      description: `Applied AI automated budget allocation across 5 departments. Enforced updated budget caps and allocation targets.`,
+      newState: allocations
+    });
+
+    showToast("AI Department Budget Allocation Applied & Enforced Successfully!", "success");
   };
 
   // Submit Action with Role Dispatch
@@ -2581,7 +3113,7 @@ export default function IntegratedFinancialSystem() {
                   id: "audit",
                   label: "Audit Trail",
                   icon: History,
-                  badge: auditLogs.length,
+                  badge: unseenAuditCount > 0 ? unseenAuditCount : undefined,
                 },
                 ...(currentUser.role === "superadmin"
                   ? [
@@ -2678,7 +3210,7 @@ export default function IntegratedFinancialSystem() {
                     <span className="text-xs font-['IBM_Plex_Mono'] font-bold">TOTAL CASH POSITION</span>
                     <PesoSign className="h-4 w-4 text-[#157A4D]" />
                   </div>
-                  <p className="text-2xl font-bold font-['IBM_Plex_Mono'] text-[#157A4D]">
+                  <p className="text-2xl font-bold font-['IBM_Plex_Mono'] text-[#157A4D] text-left">
                     {maskCurrency(cashPool.bankOperating + cashPool.pettyCash)}
                   </p>
                   <p className="text-[11px] text-[#5C636F]">
@@ -2720,232 +3252,64 @@ export default function IntegratedFinancialSystem() {
                 </div>
               </div>
 
-              {/* LINEAR REGRESSION DIAGRAM (VISIBLE FOR ADMIN & SUPER ADMIN) */}
+              {/* FINANCIAL CHARTS & GRAPHS: DAILY, WEEKLY, MONTHLY, ANNUAL (Requirement 1) */}
+              <DashboardFinancialCharts
+                maskCurrency={maskCurrency}
+                isDataMasked={isDataMasked}
+              />
+
+              {/* LINEAR REGRESSION DIAGRAM (FP&A 6-MONTH FORECASTING) */}
               <LinearRegressionDiagram
                 isDataMasked={isDataMasked}
                 maskCurrency={maskCurrency}
                 role={currentUser.role}
               />
 
-              {/* Operations & 5 Interconnected Subsystems Operational Matrix */}
-              <div className="bg-white border border-[#DFE1DB] p-5 rounded-xl space-y-4 shadow-xs">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-[#DFE1DB] pb-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <Layers className="h-4 w-4 text-[#B53A1E]" />
-                      <h3 className="font-bold text-sm font-['Archivo']">5 Interconnected Subsystems Operational Matrix &amp; Live Sync</h3>
-                    </div>
-                    <p className="text-xs text-[#5C636F] mt-0.5">
-                      Real-time cross-synchronization with the General Ledger double-entry transaction core
-                    </p>
+              {/* Streamlined Subsystems Live Reconciliation Bar (Simplified, Anti-Overcrowded) */}
+              <div className="bg-white border border-[#DFE1DB] p-4 rounded-xl shadow-xs">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-[#DFE1DB] pb-3 mb-3">
+                  <div className="flex items-center gap-2">
+                    <Layers className="h-4 w-4 text-[#B53A1E]" />
+                    <h3 className="font-bold text-sm font-['Archivo'] text-[#1A1D21]">
+                      Subsystems Interconnection &amp; Live Double-Entry Reconciler
+                    </h3>
                   </div>
-                  <button
-                    onClick={() => {
-                      showToast("All 5 Subsystems (PMS, POS, HRMS, SCM, FleetOps) synchronized with General Ledger", "success");
-                    }}
-                    className="px-3 py-1.5 bg-[#1A1D21] hover:bg-[#2A2E34] text-white text-xs font-['IBM_Plex_Mono'] font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    <span>Sync All 5 Subsystems</span>
-                  </button>
-                </div>
-
-                {/* 5 Subsystem Interconnected Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                  {/* Subsystem 1: Hotel PMS */}
-                  <div className="p-3.5 bg-[#F8F9F6] rounded-xl border border-[#DFE1DB] space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded">
-                        Subsystem 1
-                      </span>
-                      <span className="flex items-center gap-1 text-[10px] text-emerald-700 font-bold">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        Active
-                      </span>
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-[#1A1D21] font-['Archivo']">Hotel PMS</h4>
-                      <p className="text-[11px] text-[#5C636F] leading-tight mt-0.5">Front Desk Folios, Night Audit &amp; Room Revenue</p>
-                    </div>
-                    <div className="text-[10px] font-['IBM_Plex_Mono'] text-[#5C636F] space-y-0.5 pt-1 border-t border-[#DFE1DB]">
-                      <div>Linked COA: <span className="font-bold text-[#1A1D21]">{isDataMasked ? maskField("1010, 4010, 2020", "account") : "1010, 4010, 2020"}</span></div>
-                      <div>GL Volume: <span className="font-bold text-[#157A4D]">{maskCurrency(167840)}</span></div>
-                    </div>
-                    <button
-                      onClick={() => setActiveTab("gl")}
-                      className="w-full text-center py-1 text-[10px] font-bold font-['IBM_Plex_Mono'] text-blue-700 bg-blue-50 hover:bg-blue-100 rounded transition-colors cursor-pointer"
-                    >
-                      Inspect in GL →
-                    </button>
-                  </div>
-
-                  {/* Subsystem 2: Restaurant POS */}
-                  <div className="p-3.5 bg-[#F8F9F6] rounded-xl border border-[#DFE1DB] space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded">
-                        Subsystem 2
-                      </span>
-                      <span className="flex items-center gap-1 text-[10px] text-emerald-700 font-bold">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        Active
-                      </span>
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-[#1A1D21] font-['Archivo']">Restaurant POS</h4>
-                      <p className="text-[11px] text-[#5C636F] leading-tight mt-0.5">Dining Checks, Bar Revenue &amp; 85% SC Pool</p>
-                    </div>
-                    <div className="text-[10px] font-['IBM_Plex_Mono'] text-[#5C636F] space-y-0.5 pt-1 border-t border-[#DFE1DB]">
-                      <div>Linked COA: <span className="font-bold text-[#1A1D21]">{isDataMasked ? maskField("1020, 4020, 2200", "account") : "1020, 4020, 2200"}</span></div>
-                      <div>GL Volume: <span className="font-bold text-[#157A4D]">{maskCurrency(86240)}</span></div>
-                    </div>
-                    <button
-                      onClick={() => setActiveTab("gl")}
-                      className="w-full text-center py-1 text-[10px] font-bold font-['IBM_Plex_Mono'] text-amber-800 bg-amber-50 hover:bg-amber-100 rounded transition-colors cursor-pointer"
-                    >
-                      Inspect in GL →
-                    </button>
-                  </div>
-
-                  {/* Subsystem 3: HRMS Payroll */}
-                  <div className="p-3.5 bg-[#F8F9F6] rounded-xl border border-[#DFE1DB] space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 rounded">
-                        Subsystem 3
-                      </span>
-                      <span className="flex items-center gap-1 text-[10px] text-emerald-700 font-bold">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        Active
-                      </span>
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-[#1A1D21] font-['Archivo']">HRMS Payroll</h4>
-                      <p className="text-[11px] text-[#5C636F] leading-tight mt-0.5">Salaries, BIR WHT, SSS &amp; Bank Direct EFT</p>
-                    </div>
-                    <div className="text-[10px] font-['IBM_Plex_Mono'] text-[#5C636F] space-y-0.5 pt-1 border-t border-[#DFE1DB]">
-                      <div>Linked COA: <span className="font-bold text-[#1A1D21]">{isDataMasked ? maskField("5110, 2110, 2120", "account") : "5110, 2110, 2120"}</span></div>
-                      <div>GL Volume: <span className="font-bold text-[#157A4D]">{maskCurrency(185000)}</span></div>
-                    </div>
-                    <button
-                      onClick={() => setActiveTab("gl")}
-                      className="w-full text-center py-1 text-[10px] font-bold font-['IBM_Plex_Mono'] text-purple-700 bg-purple-50 hover:bg-purple-100 rounded transition-colors cursor-pointer"
-                    >
-                      Inspect in GL →
-                    </button>
-                  </div>
-
-                  {/* Subsystem 4: Supply Chain */}
-                  <div className="p-3.5 bg-[#F8F9F6] rounded-xl border border-[#DFE1DB] space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded">
-                        Subsystem 4
-                      </span>
-                      <span className="flex items-center gap-1 text-[10px] text-emerald-700 font-bold">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        Active
-                      </span>
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-[#1A1D21] font-['Archivo']">Supply Chain</h4>
-                      <p className="text-[11px] text-[#5C636F] leading-tight mt-0.5">PO Matching, Raw Meats, F&amp;B &amp; Trade AP</p>
-                    </div>
-                    <div className="text-[10px] font-['IBM_Plex_Mono'] text-[#5C636F] space-y-0.5 pt-1 border-t border-[#DFE1DB]">
-                      <div>Linked COA: <span className="font-bold text-[#1A1D21]">{isDataMasked ? maskField("1310, 1320, 2010", "account") : "1310, 1320, 2010"}</span></div>
-                      <div>GL Volume: <span className="font-bold text-[#157A4D]">{maskCurrency(112000)}</span></div>
-                    </div>
-                    <button
-                      onClick={() => setActiveTab("gl")}
-                      className="w-full text-center py-1 text-[10px] font-bold font-['IBM_Plex_Mono'] text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded transition-colors cursor-pointer"
-                    >
-                      Inspect in GL →
-                    </button>
-                  </div>
-
-                  {/* Subsystem 5: FleetOps */}
-                  <div className="p-3.5 bg-[#F8F9F6] rounded-xl border border-[#DFE1DB] space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold px-2 py-0.5 bg-cyan-50 text-cyan-800 border border-cyan-300 rounded">
-                        Subsystem 5
-                      </span>
-                      <span className="flex items-center gap-1 text-[10px] text-emerald-700 font-bold">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        Active
-                      </span>
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-[#1A1D21] font-['Archivo']">FleetOps</h4>
-                      <p className="text-[11px] text-[#5C636F] leading-tight mt-0.5">Vehicles, Fuel Cards, Maintenance &amp; Shuttles</p>
-                    </div>
-                    <div className="text-[10px] font-['IBM_Plex_Mono'] text-[#5C636F] space-y-0.5 pt-1 border-t border-[#DFE1DB]">
-                      <div>Linked COA: <span className="font-bold text-[#1A1D21]">{isDataMasked ? maskField("1530, 2030, 4300, 5410", "account") : "1530, 2030, 4300, 5410"}</span></div>
-                      <div>GL Volume: <span className="font-bold text-[#157A4D]">{maskCurrency(87700)}</span></div>
-                    </div>
-                    <button
-                      onClick={() => setActiveTab("gl")}
-                      className="w-full text-center py-1 text-[10px] font-bold font-['IBM_Plex_Mono'] text-cyan-800 bg-cyan-50 hover:bg-cyan-100 rounded transition-colors cursor-pointer"
-                    >
-                      Inspect in GL →
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Status Grid */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 bg-white border border-[#DFE1DB] p-5 rounded-xl space-y-4 shadow-xs">
-                  <div className="flex justify-between items-center">
-                    <h3 className="font-bold text-sm font-['Archivo']">Subsystem Cross-Synchronization Feed</h3>
-                    <span className="text-[10px] font-['IBM_Plex_Mono'] text-[#5C636F]">
-                      Active GL Turnover: <strong>{maskCurrency(totalDebits)}</strong>
+                  <div className="flex items-center gap-3 text-xs font-['IBM_Plex_Mono']">
+                    <span className="flex items-center gap-1.5 text-[#157A4D] font-bold">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      <span>Ledger Balanced (Debits = Credits: {maskCurrency(totalDebits)})</span>
                     </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-['IBM_Plex_Sans']">
-                    <div className="p-3.5 bg-[#F1F1ED] rounded-lg space-y-1.5 border border-[#DFE1DB]">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-[#1A1D21]">General Ledger Balance</span>
-                        <CheckCircle2 className="h-4 w-4 text-[#157A4D]" />
-                      </div>
-                      <p className="text-[#5C636F]">
-                        {isGlBalanced
-                          ? "Ledger is balanced across all 5 subsystems (Debits = Credits). Double-entry rules strictly satisfied."
-                          : "Warning: Unbalanced debit/credit detected."}
-                      </p>
-                      <span className="text-[11px] font-['IBM_Plex_Mono'] font-bold text-[#157A4D] block">
-                        Balanced Volume: {maskCurrency(totalDebits)}
-                      </span>
-                    </div>
-
-                    <div className="p-3.5 bg-[#F1F1ED] rounded-lg space-y-1.5 border border-[#DFE1DB]">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-[#1A1D21]">Department Budgets</span>
-                        <Sparkles className="h-4 w-4 text-[#FF6A3D]" />
-                      </div>
-                      <p className="text-[#5C636F]">
-                        {budgets.length} Department pools monitored across F&amp;B, Rooms, Logistics &amp; Facilities.
-                      </p>
-                      <span className="text-[11px] font-['IBM_Plex_Mono'] font-bold text-[#B53A1E] block">
-                        Total Allocated: {maskCurrency(budgets.reduce((s, b) => s + b.allocated, 0))}
-                      </span>
-                    </div>
+                    <button
+                      onClick={() => showToast("Subsystems synchronized with General Ledger", "success")}
+                      className="px-2.5 py-1 bg-[#F1F1ED] hover:bg-[#DFE1DB] text-[#1A1D21] text-[11px] font-bold rounded flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                      <span>Sync</span>
+                    </button>
                   </div>
                 </div>
 
-                <div className="bg-white border border-[#DFE1DB] p-5 rounded-xl space-y-3 shadow-xs">
-                  <h3 className="font-bold text-sm font-['Archivo']">Governance Summary</h3>
-                  <div className="text-xs space-y-2 font-['IBM_Plex_Sans']">
-                    <div className="p-2.5 border rounded-lg bg-[#F8F9F6] border-[#DFE1DB]">
-                      <span className="font-bold text-[#1A1D21] block">Standard Admin Privileges</span>
-                      <p className="text-[11px] text-[#5C636F]">
-                        Can create invoices, record receipts, draft budgets &amp; post entries into review queue.
-                      </p>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs font-['IBM_Plex_Mono']">
+                  {[
+                    { name: "Hotel PMS", coa: "1010, 4010, 2020", vol: 167840, tag: "PMS" },
+                    { name: "Restaurant POS", coa: "1020, 4020, 2200", vol: 86240, tag: "POS" },
+                    { name: "HRMS Payroll", coa: "5110, 2110, 2120", vol: 185000, tag: "HR" },
+                    { name: "Supply Chain", coa: "1310, 1320, 2010", vol: 112000, tag: "SCM" },
+                    { name: "FleetOps", coa: "1530, 2030, 4300", vol: 87700, tag: "FLEET" }
+                  ].map((sub) => (
+                    <div
+                      key={sub.name}
+                      onClick={() => setActiveTab("gl")}
+                      className="p-2.5 bg-[#F8F9F6] hover:bg-[#F1F1ED] border border-[#DFE1DB] rounded-lg transition-colors cursor-pointer group"
+                    >
+                      <div className="flex justify-between items-center text-[10px]">
+                        <span className="font-bold text-[#1A1D21]">{sub.name}</span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      </div>
+                      <div className="text-[10px] text-[#5C636F] mt-1">COA: {sub.coa}</div>
+                      <div className="text-[11px] font-bold text-[#157A4D] mt-0.5">{maskCurrency(sub.vol)}</div>
                     </div>
-                    <div className="p-2.5 border rounded-lg bg-[#F8F9F6] border-[#DFE1DB]">
-                      <span className="font-bold text-[#B53A1E] block">Super Admin Privileges</span>
-                      <p className="text-[11px] text-[#5C636F]">
-                        Direct commit rights, multi-module approval authorization &amp; master ledger governance.
-                      </p>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -2990,6 +3354,7 @@ export default function IntegratedFinancialSystem() {
               invoices={arInvoices}
               onAddInvoice={handleAddArInvoice}
               onExecuteCollection={handleExecuteArCollection}
+              onBatchCollectAll={handleBatchCollectAll}
               currentUser={currentUser}
               isDataMasked={isDataMasked}
               maskCurrency={maskCurrency}
@@ -3017,133 +3382,14 @@ export default function IntegratedFinancialSystem() {
               MODULE: DISBURSEMENTS
              ============================================================================== */}
           {activeTab === "disbursement" && (
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-[#DFE1DB] pb-4">
-                <div>
-                  <h2 className="text-2xl font-bold font-['Archivo']">Disbursement Management &amp; Payout Control</h2>
-                  <p className="text-xs text-[#5C636F]">Vendor checks, payroll direct deposit EFT, withholding tax (EWT) &amp; bank cash pool decrement</p>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <ExportButton
-                    getExportData={getDisbursementExportData}
-                    buttonLabel="Export Disbursements"
-                  />
-                </div>
-              </div>
-
-              {/* 4-Stage Approval & Verification Lifecycle */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div className="bg-white border border-[#DFE1DB] p-3.5 rounded-xl shadow-xs">
-                  <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold text-[#5C636F] uppercase block">TOTAL DISBURSED (MTD)</span>
-                  <p className="text-lg font-bold font-['IBM_Plex_Mono'] text-[#B5281A] mt-1">
-                    {maskCurrency(disbursementData.reduce((s, d) => s + d.netPay, 0))}
-                  </p>
-                  <span className="text-[10px] text-[#5C636F]">Electronic payouts cleared</span>
-                </div>
-                <div className="bg-white border border-[#DFE1DB] p-3.5 rounded-xl shadow-xs">
-                  <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold text-[#5C636F] uppercase block">2-TIER VERIFICATION</span>
-                  <p className="text-lg font-bold font-['IBM_Plex_Mono'] text-[#157A4D] mt-1">Authorized</p>
-                  <span className="text-[10px] text-[#5C636F]">Finance Reviewer + GM Sign-off</span>
-                </div>
-                <div className="bg-white border border-[#DFE1DB] p-3.5 rounded-xl shadow-xs">
-                  <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold text-[#5C636F] uppercase block">WITHHOLDING TAX (EWT 2%)</span>
-                  <p className="text-lg font-bold font-['IBM_Plex_Mono'] text-[#FF6A3D] mt-1">
-                    {maskCurrency(disbursementData.reduce((s, d) => s + d.netPay * 0.02, 0))}
-                  </p>
-                  <span className="text-[10px] text-[#5C636F]">BIR Form 2307 Creditable</span>
-                </div>
-                <div className="bg-white border border-[#DFE1DB] p-3.5 rounded-xl shadow-xs">
-                  <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold text-[#5C636F] uppercase block">PAYOUT PROTOCOL</span>
-                  <p className="text-lg font-bold font-['IBM_Plex_Mono'] text-[#1A1D21] mt-1">PESONet / SWIFT</p>
-                  <span className="text-[10px] text-[#5C636F]">Direct commercial bank sweep</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 bg-white border border-[#DFE1DB] p-4 rounded-xl shadow-xs space-y-3">
-                  <div className="flex justify-between items-center">
-                    <h3 className="font-bold text-sm font-['Archivo']">Disbursement Authorizations</h3>
-                    <span className="text-xs font-['IBM_Plex_Mono'] text-[#5C636F]">{disbursementData.length} Outflows</span>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm font-['IBM_Plex_Sans']">
-                      <thead className="bg-[#F1F1ED] text-xs font-['IBM_Plex_Mono']">
-                        <tr>
-                          <th className="p-2.5">Disbursement ID</th>
-                          <th className="p-2.5">Payee Name</th>
-                          <th className="p-2.5">Department</th>
-                          <th className="p-2.5">SWIFT / Bank</th>
-                          <th className="p-2.5 text-right">Net Outflow</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#F1F1ED]">
-                        {disbursementData.map((row) => (
-                          <tr key={row.id} className="hover:bg-slate-50">
-                            <td className="p-2.5 font-['IBM_Plex_Mono'] text-[#B53A1E] font-bold">{row.id}</td>
-                            <td className="p-2.5 font-medium">{maskField(row.payee, 'name')}</td>
-                            <td className="p-2.5 text-xs text-[#5C636F]">{row.department}</td>
-                            <td className="p-2.5 font-['IBM_Plex_Mono'] text-xs">{maskField(row.swift, 'swift')}</td>
-                            <td className="p-2.5 text-right font-bold text-[#B5281A] font-['IBM_Plex_Mono']">{maskCurrency(row.netPay)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div className="bg-white border border-[#DFE1DB] p-4 rounded-xl space-y-3 text-xs shadow-xs">
-                  <h3 className="font-bold text-sm font-['Archivo']">Create Payment Disbursement</h3>
-                  <input
-                    type="text"
-                    placeholder="Beneficiary Payee Name (e.g., Executive Payroll)"
-                    value={disbursementForm.payee}
-                    onChange={(e) => setDisbursementForm({ ...disbursementForm, payee: e.target.value })}
-                    className="w-full border p-2 rounded"
-                  />
-                  <select
-                    value={disbursementForm.department}
-                    onChange={(e) => setDisbursementForm({ ...disbursementForm, department: e.target.value })}
-                    className="w-full border p-2 rounded font-bold"
-                  >
-                    <option value="Executive Management">Executive Management</option>
-                    <option value="Kitchen & F&B Operations">Kitchen &amp; F&B Operations</option>
-                    <option value="Housekeeping & Facility">Housekeeping &amp; Facility</option>
-                  </select>
-                  <input
-                    type="text"
-                    placeholder="SWIFT / BIC Code"
-                    value={disbursementForm.swift}
-                    onChange={(e) => setDisbursementForm({ ...disbursementForm, swift: e.target.value })}
-                    className="w-full border p-2 rounded"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Net Pay Outflow (PHP)"
-                    value={disbursementForm.netPay}
-                    onChange={(e) => setDisbursementForm({ ...disbursementForm, netPay: e.target.value })}
-                    className="w-full border p-2 rounded font-['IBM_Plex_Mono']"
-                  />
-                  <button
-                    onClick={() => {
-                      if (!disbursementForm.payee || !disbursementForm.netPay) return;
-                      submitForApproval("ADD_DISBURSEMENT", "Disbursements", {
-                        id: `DISB-${Math.floor(500 + Math.random() * 400)}`,
-                        payee: disbursementForm.payee,
-                        swift: disbursementForm.swift || "BOFAPHMMXXX",
-                        nationalId: "112-482-990-110",
-                        token: `AUTH-${Math.floor(10000 + Math.random() * 90000)}-Z9`,
-                        department: disbursementForm.department,
-                        netPay: Number(disbursementForm.netPay),
-                      });
-                      setDisbursementForm({ payee: "", swift: "", nationalId: "", netPay: "", department: "General Operations" });
-                    }}
-                    className="w-full bg-[#1A1D21] hover:bg-[#2A2E34] text-white p-2.5 rounded font-bold font-['IBM_Plex_Mono'] transition-colors cursor-pointer"
-                  >
-                    {currentUser.role === "superadmin" ? "Commit Disbursement Directly" : "Request Disbursement"}
-                  </button>
-                </div>
-              </div>
-            </div>
+            <DisbursementManagement
+              cashPool={cashPool}
+              currentUser={currentUser}
+              onExecuteDisbursement={handleExecuteDisbursement}
+              onUpdateDepartmentBudgets={handleUpdateDepartmentBudgets}
+              maskCurrency={maskCurrency}
+              isDataMasked={isDataMasked}
+            />
           )}
 
           {/* ==============================================================================
@@ -3244,6 +3490,9 @@ export default function IntegratedFinancialSystem() {
               isDataMasked={isDataMasked}
               maskCurrency={maskCurrency}
               maskField={maskField}
+              cashPool={cashPool}
+              collections={collections}
+              arInvoices={arInvoices}
             />
           )}
 
