@@ -70,9 +70,17 @@ import DisbursementManagement, { DisbursementReceipt } from "./components/Disbur
 import { INITIAL_LEDGER_POSTS } from "./data/hospitalityData";
 import loginHeroImage from "../src/assets/images/login_hero_image_1787844999408.jpg";
 
-export default function IntegratedFinancialSystem() {
+export interface IntegratedFinancialSystemProps {
+  onSwitchSubsystem?: (subsystem: string) => void;
+  targetTab?: string;
+}
+
+export default function IntegratedFinancialSystem({
+  onSwitchSubsystem,
+  targetTab,
+}: IntegratedFinancialSystemProps = {}) {
   // ==========================================
-  // AUTHORIZED ACCOUNTS & USER CREDENTIALS
+  // AUTHORIZED ACCOUNTS & USER CREDENTIALS (ENTERPRISE MULTI-USER CONFIGURATION)
   // ==========================================
   const INITIAL_ACCOUNTS: SystemUser[] = [
     {
@@ -96,6 +104,72 @@ export default function IntegratedFinancialSystem() {
       status: "active",
       createdAt: "2026-08-19",
       otpVerified: true
+    },
+    {
+      id: "USR-003",
+      name: "Janine Hular (HR Director)",
+      email: "Janine@horeca.net",
+      googleAccount: "janine.hular@horeca.net",
+      password: "#Hular2026",
+      role: "admin",
+      status: "active",
+      createdAt: "2026-08-20",
+      otpVerified: true
+    },
+    {
+      id: "USR-004",
+      name: "Sheila Suede (Hotel Operations)",
+      email: "Sheila@horeca.net",
+      googleAccount: "sheila.suede@horeca.net",
+      password: "#Suede2026",
+      role: "admin",
+      status: "active",
+      createdAt: "2026-08-20",
+      otpVerified: true
+    },
+    {
+      id: "USR-005",
+      name: "Charles Tiu (F&B Resto GM)",
+      email: "Charles@horeca.net",
+      googleAccount: "charles.tiu@horeca.net",
+      password: "#Tiu2026",
+      role: "admin",
+      status: "active",
+      createdAt: "2026-08-21",
+      otpVerified: true
+    },
+    {
+      id: "USR-006",
+      name: "Jordan Tiu (Supply Chain Controller)",
+      email: "Jordan@horeca.net",
+      googleAccount: "jordan.tiu@horeca.net",
+      password: "#Tiu2027",
+      role: "admin",
+      status: "active",
+      createdAt: "2026-08-21",
+      otpVerified: true
+    },
+    {
+      id: "USR-007",
+      name: "Lourence Piedad (FleetOps Logistics)",
+      email: "Lourence@horeca.net",
+      googleAccount: "lourence.piedad@horeca.net",
+      password: "#Piedad2026",
+      role: "admin",
+      status: "active",
+      createdAt: "2026-08-22",
+      otpVerified: true
+    },
+    {
+      id: "USR-008",
+      name: "Aira Alcantara (Senior Night Auditor)",
+      email: "Aira@horeca.net",
+      googleAccount: "aira.alcantara@horeca.net",
+      password: "#Audit2026",
+      role: "admin",
+      status: "active",
+      createdAt: "2026-08-23",
+      otpVerified: true
     }
   ];
 
@@ -103,7 +177,18 @@ export default function IntegratedFinancialSystem() {
     try {
       const stored = localStorage.getItem("horeca_system_users");
       if (stored) {
-        return JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Merge initial accounts with stored accounts so new defaults are available
+          const existingEmails = new Set(parsed.map((u: any) => u.email.toLowerCase()));
+          const missing = INITIAL_ACCOUNTS.filter((acc) => !existingEmails.has(acc.email.toLowerCase()));
+          if (missing.length > 0) {
+            const merged = [...parsed, ...missing];
+            localStorage.setItem("horeca_system_users", JSON.stringify(merged));
+            return merged;
+          }
+          return parsed;
+        }
       }
     } catch (e) {
       console.error("Failed to load users from localStorage", e);
@@ -113,19 +198,23 @@ export default function IntegratedFinancialSystem() {
 
   const [currentUser, setCurrentUser] = useState<SystemUser | null>(() => {
     try {
-      const savedUser = localStorage.getItem("horeca_current_user");
-      const lastActivity = localStorage.getItem("horeca_last_activity");
+      // Purge legacy shared localStorage keys so different browser tabs are fully independent
+      localStorage.removeItem("horeca_current_user");
+      localStorage.removeItem("horeca_last_activity");
+
+      const savedUser = sessionStorage.getItem("horeca_current_user");
+      const lastActivity = sessionStorage.getItem("horeca_last_activity");
       if (savedUser) {
         // If lastActivity exists, check if expired (15 mins = 900,000 ms)
         if (lastActivity && Date.now() - Number(lastActivity) > 15 * 60 * 1000) {
-          localStorage.removeItem("horeca_current_user");
-          localStorage.removeItem("horeca_last_activity");
+          sessionStorage.removeItem("horeca_current_user");
+          sessionStorage.removeItem("horeca_last_activity");
           return null;
         }
         return JSON.parse(savedUser);
       }
     } catch (e) {
-      console.error("Failed to restore session from localStorage", e);
+      console.error("Failed to restore session from sessionStorage", e);
     }
     return null;
   });
@@ -159,7 +248,7 @@ export default function IntegratedFinancialSystem() {
   // Session Inactivity Countdown (15 minutes = 900 seconds)
   const [sessionSecondsLeft, setSessionSecondsLeft] = useState<number>(() => {
     try {
-      const lastActivity = localStorage.getItem("horeca_last_activity");
+      const lastActivity = sessionStorage.getItem("horeca_last_activity");
       if (lastActivity) {
         const elapsedSecs = Math.floor((Date.now() - Number(lastActivity)) / 1000);
         if (elapsedSecs < 900) {
@@ -182,6 +271,14 @@ export default function IntegratedFinancialSystem() {
     }
   });
 
+  // Two-Tier Governance Approvals Filter & Verification Modal State
+  const [approvalFilter, setApprovalFilter] = useState<"ALL" | "STAGE_1_ADMIN" | "STAGE_2_SUPERADMIN" | "COMPLETED">("ALL");
+  const [adminVerifyModal, setAdminVerifyModal] = useState<{ isOpen: boolean; req: any | null; notes: string }>({
+    isOpen: false,
+    req: null,
+    notes: ""
+  });
+
   // Toast Notification State
   const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "info" | "warning" } | null>(null);
 
@@ -192,21 +289,22 @@ export default function IntegratedFinancialSystem() {
     }, 4500);
   };
 
-  // LocalStorage Persistence Hooks
+  // LocalStorage / SessionStorage Persistence Hooks
   useEffect(() => {
     try {
       localStorage.setItem("horeca_system_users", JSON.stringify(systemUsers));
     } catch (e) {}
   }, [systemUsers]);
 
+  // Tab-isolated session: Each browser tab retains its own active user and session timer
   useEffect(() => {
     try {
       if (currentUser) {
-        localStorage.setItem("horeca_current_user", JSON.stringify(currentUser));
-        localStorage.setItem("horeca_last_activity", Date.now().toString());
+        sessionStorage.setItem("horeca_current_user", JSON.stringify(currentUser));
+        sessionStorage.setItem("horeca_last_activity", Date.now().toString());
       } else {
-        localStorage.removeItem("horeca_current_user");
-        localStorage.removeItem("horeca_last_activity");
+        sessionStorage.removeItem("horeca_current_user");
+        sessionStorage.removeItem("horeca_last_activity");
       }
     } catch (e) {}
   }, [currentUser]);
@@ -236,7 +334,7 @@ export default function IntegratedFinancialSystem() {
     const resetInactivity = () => {
       setSessionSecondsLeft(900); // Reset to 15 minutes upon user interaction
       try {
-        localStorage.setItem("horeca_last_activity", Date.now().toString());
+        sessionStorage.setItem("horeca_last_activity", Date.now().toString());
       } catch (e) {}
     };
 
@@ -492,7 +590,7 @@ export default function IntegratedFinancialSystem() {
     setCurrentUser(user);
     setIsDataMasked(true); // Mandatory: data is always masked after each login
     setSessionSecondsLeft(900); // 15 mins
-    const savedTab = localStorage.getItem("horeca_active_tab");
+    const savedTab = sessionStorage.getItem("horeca_active_tab");
     if (savedTab && (savedTab !== "users" || user.role === "superadmin")) {
       setActiveTab(savedTab);
     } else {
@@ -666,7 +764,7 @@ export default function IntegratedFinancialSystem() {
   // ==========================================
   const [activeTab, setActiveTab] = useState<string>(() => {
     try {
-      const savedTab = localStorage.getItem("horeca_active_tab");
+      const savedTab = sessionStorage.getItem("horeca_active_tab");
       if (savedTab) return savedTab;
     } catch (e) {}
     return "overview";
@@ -675,10 +773,47 @@ export default function IntegratedFinancialSystem() {
   useEffect(() => {
     try {
       if (activeTab) {
-        localStorage.setItem("horeca_active_tab", activeTab);
+        sessionStorage.setItem("horeca_active_tab", activeTab);
       }
     } catch (e) {}
   }, [activeTab]);
+
+  useEffect(() => {
+    if (targetTab) {
+      setActiveTab(targetTab);
+    }
+  }, [targetTab]);
+
+  useEffect(() => {
+    const handleFmsSync = (e: any) => {
+      try {
+        const gl = localStorage.getItem("horeca_journal_entries");
+        if (gl) setJournalEntries(JSON.parse(gl));
+        const ap = localStorage.getItem("horeca_ap_invoices");
+        if (ap) setApInvoices(JSON.parse(ap));
+        const ar = localStorage.getItem("horeca_ar_invoices");
+        if (ar) setArInvoices(JSON.parse(ar));
+        const cash = localStorage.getItem("horeca_cash_pool");
+        if (cash) setCashPool(JSON.parse(cash));
+        const apps = localStorage.getItem("horeca_pending_approvals");
+        if (apps) setPendingApprovals(JSON.parse(apps));
+        const tax = localStorage.getItem("horeca_tax_records");
+        if (tax) setTaxRecords(JSON.parse(tax));
+        const aud = localStorage.getItem("horeca_audit_logs");
+        if (aud) setAuditLogs(JSON.parse(aud));
+
+        const packet = e?.detail;
+        if (packet) {
+          showToast(`FMS Interop Sync: [${packet.action}] from ${packet.sourceModule}`, "info");
+        }
+      } catch (err) {
+        console.error("Error refreshing FMS state on interop sync", err);
+      }
+    };
+
+    window.addEventListener("fms-sync-event", handleFmsSync);
+    return () => window.removeEventListener("fms-sync-event", handleFmsSync);
+  }, []);
   const [isDataMasked, setIsDataMasked] = useState<boolean>(true);
   const [adminPasswordInput, setAdminPasswordInput] = useState<string>("");
   const [isPassModalOpen, setIsPassModalOpen] = useState<boolean>(false);
@@ -1107,7 +1242,7 @@ export default function IntegratedFinancialSystem() {
   });
   const [taxForm, setTaxForm] = useState({ type: "Value Added Tax (VAT 12%)", rate: 0.12, taxableAmount: "" });
 
-  // 8. Pending Approvals Queue (Persisted)
+  // 8. Pending Approvals Queue (Persisted 2-Tier Governance: Subsystem -> Admin -> Super Admin)
   const [pendingApprovals, setPendingApprovals] = useState<any[]>(() => {
     try {
       const saved = localStorage.getItem("horeca_pending_approvals");
@@ -1116,35 +1251,104 @@ export default function IntegratedFinancialSystem() {
     return [
       {
         id: "REQ-201",
-        actionType: "CREATE_AP_AR",
-        requestedBy: "Standard Administrator",
-        timestamp: "2026-08-19 14:15",
-        module: "AP / AR Module",
+        actionType: "APPROVE_PAYROLL_DISBURSEMENT_BATCH",
+        requestedBy: "Janine Hular (HR-Payroll Director)",
+        timestamp: "2026-09-29 08:30",
+        module: "HR-Payroll",
+        title: "Semi-Monthly Staff Payroll Batch [PAY-2026-Q3-01]",
+        amount: 130480,
+        status: "PENDING_ADMIN",
+        currentStage: "STAGE_1_ADMIN",
         payload: {
-          id: "INV-9903",
-          entityName: "Meralco Commercial Power Grid",
-          tin: "111-222-333-000",
-          type: "AP",
-          bankDetails: "1122-3344-5566",
-          amount: 65000,
-          status: "Pending",
-          category: "Utilities & Electricity"
+          batchId: "PAY-2026-Q3-01",
+          staffCount: 5,
+          totalGross: 178000,
+          totalStatutory: 47520,
+          netPayout: 130480
         },
-        impactSummary: "Increases Outstanding AP by ₱65,000 and posts balanced GL debit to 5220 - Electricity Utilities."
+        impactSummary: "Gross ₱178,000 less Statutory Deductions (₱47,520). Net Payout ₱130,480 to be disbursed from Operating Treasury."
       },
       {
         id: "REQ-202",
-        actionType: "ADD_BUDGET",
-        requestedBy: "Standard Administrator",
-        timestamp: "2026-08-19 15:40",
-        module: "Budget Management",
+        actionType: "APPROVE_PURVEYOR_INVOICE",
+        requestedBy: "Jordan Tiu (Supply Chain Controller)",
+        timestamp: "2026-09-29 08:15",
+        module: "Supply-Chain",
+        title: "Purveyor AP Invoice [INV-SC-8492]: San Miguel Foods Corp",
+        amount: 148500,
+        status: "PENDING_SUPERADMIN",
+        currentStage: "STAGE_2_SUPERADMIN",
+        adminVerifiedBy: "Renz (Standard Admin)",
+        adminVerifiedAt: "2026-09-29 08:25",
+        adminNotes: "PO, Delivery Receipt, and 1% EWT BIR computation verified. Net 30 days payable endorsed for executive sign-off.",
         payload: {
-          id: "BGT-05",
-          department: "Spa & Wellness Recreation",
-          allocated: 200000,
-          spent: 0
+          id: "INV-SC-8492",
+          vendor: "San Miguel Foods Corp",
+          tin: "000-128-492-000",
+          amount: 150000,
+          ewtAmount: 1500,
+          netPayable: 148500,
+          category: "Fresh Meats & Poultry Inventory"
         },
-        impactSummary: "Establishes a new ₱200,000 departmental spending budget."
+        impactSummary: "Increases Trade AP by ₱148,500 and records 1% Creditable Withholding Tax (₱1,500) with inventory asset debit."
+      },
+      {
+        id: "REQ-203",
+        actionType: "APPROVE_GUEST_REFUND_CLAIM",
+        requestedBy: "Sheila Suede (Hotel Front Office Director)",
+        timestamp: "2026-09-29 08:45",
+        module: "Hotel-MNGT",
+        title: "Guest Security Deposit Refund [REF-2026-44]: Room 402",
+        amount: 12500,
+        status: "PENDING_ADMIN",
+        currentStage: "STAGE_1_ADMIN",
+        payload: {
+          claimId: "REF-2026-44",
+          roomNumber: "Suite 402",
+          guestName: "Mr. Harrison Chen",
+          amount: 12500,
+          paymentRail: "Cash Float Payout",
+          reason: "Security deposit release upon clean inspection check-out."
+        },
+        impactSummary: "Requires Admin verification before Super Admin authorizes ₱12,500 cash float release and guest ledger reconciliation."
+      },
+      {
+        id: "REQ-204",
+        actionType: "APPROVE_VEHICLE_MAINTENANCE_DISBURSEMENT",
+        requestedBy: "Lourence Piedad (Fleet Logistics Lead)",
+        timestamp: "2026-09-29 08:50",
+        module: "FleetOps",
+        title: "Coaster Shuttle Brake & Suspension Overhaul [WO-FLT-904]",
+        amount: 38400,
+        status: "PENDING_ADMIN",
+        currentStage: "STAGE_1_ADMIN",
+        payload: {
+          workOrderId: "WO-FLT-904",
+          vehiclePlate: "NAA-4920 (VIP Guest Coaster)",
+          serviceCenter: "Toyota Commercial Truck Care Center",
+          workDescription: "Complete brake pad replacement & front suspension overhaul",
+          amount: 38400,
+          costCenter: "5205 - Hotel Shuttle Transport"
+        },
+        impactSummary: "Maintenance work order estimate verified with CASA. Deducts Operating Bank ₱38,400 to Fleet Cost Center 5205."
+      },
+      {
+        id: "REQ-205",
+        actionType: "RESTRICT_PURCHASE_REQUISITIONS",
+        requestedBy: "Charles Tiu (F&B Operations GM)",
+        timestamp: "2026-09-29 08:55",
+        module: "Resto-MNGT",
+        title: "Food Cost Threshold Breach Variance Audit Lock (37.8% vs 32.0%)",
+        amount: 86400,
+        status: "PENDING_ADMIN",
+        currentStage: "STAGE_1_ADMIN",
+        payload: {
+          currentFoodCostPct: 37.8,
+          targetFoodCostPct: 32.0,
+          actualCostOfIngredients: 86400,
+          status: "LOCKED_FOR_VARIANCE_AUDIT"
+        },
+        impactSummary: "Resto food cost exceeded threshold (+5.8%). Requires Admin review and Super Admin lock on all fresh produce PO requisitions."
       }
     ];
   });
@@ -1639,6 +1843,382 @@ export default function IntegratedFinancialSystem() {
         description: `Approved customer invoice ${payload.id} for ${payload.customer} (₱${Number(payload.amount).toLocaleString()})`,
         newState: { invoice: payload, glLines }
       });
+    }
+
+    if (actionType === "APPROVE_PAYROLL_DISBURSEMENT_BATCH") {
+      const netAmount = Number(payload.netPayout || req.amount || 0);
+      const grossAmount = Number(payload.totalGross || netAmount);
+      const batchRef = payload.batchId || req.id;
+
+      // 1. Decrement Bank Operating Balance
+      setCashPool((prev) => ({
+        ...prev,
+        bankOperating: Math.max(0, prev.bankOperating - netAmount)
+      }));
+
+      // 2. Add to Disbursements
+      const newDisb: any = {
+        id: `DISB-${batchRef}`,
+        payee: "HORECA Consolidated Payroll Pool (5 Subsystems)",
+        swift: "BDO-PESONET",
+        nationalId: "****PAYROLL",
+        netPay: netAmount,
+        token: `TKN-${Date.now().toString().slice(-6)}`,
+        department: "Human Resources & Payroll",
+        voucherNo: `VCH-${batchRef}`,
+        purpose: `Semi-Monthly Net Payroll Payout for ${payload.staffCount || 5} Employees`,
+        timestamp: new Date().toISOString().replace("T", " ").substring(0, 16),
+        status: "APPROVED_AND_DISBURSED"
+      };
+      setDisbursementData((prev) => [newDisb, ...prev]);
+
+      // 3. Post Balanced General Ledger Journal Entry
+      const glLines = [
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: batchRef,
+          sourceModule: "HR-Payroll",
+          accountCode: "5110",
+          accountName: "5110 - Executive, Front Desk & Kitchen Salaries Expense",
+          memo: `Payroll Gross Accrual: ${batchRef}`,
+          debit: grossAmount,
+          credit: 0,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        },
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: batchRef,
+          sourceModule: "HR-Payroll",
+          accountCode: "1030",
+          accountName: "1030 - Operating Bank Account - Primary (BDO)",
+          memo: `Net Payroll Bank EFT Outflow: ${batchRef}`,
+          debit: 0,
+          credit: netAmount,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        }
+      ];
+      if (grossAmount > netAmount) {
+        glLines.push({
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: batchRef,
+          sourceModule: "HR-Payroll",
+          accountCode: "2030",
+          accountName: "2030 - Statutory Premiums & Withholding Taxes Payable",
+          memo: `Statutory Deductions Withheld (SSS/PhilHealth/HDMF/WHT)`,
+          debit: 0,
+          credit: grossAmount - netAmount,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        });
+      }
+
+      setJournalEntries((prev) => [...glLines, ...prev]);
+      showToast(`Cross-Module Sync: Payroll Batch ${batchRef} (₱${netAmount.toLocaleString()}) disbursed from Treasury and balanced in GL!`, "success");
+
+      logAuditEvent({
+        action: "APPROVE_PAYROLL_BATCH",
+        module: "HR-Payroll Interop",
+        description: `Super Admin authorized and disbursed payroll batch ${batchRef} (Net: ₱${netAmount.toLocaleString()})`,
+        newState: { batch: payload, glLines, netAmount }
+      });
+    }
+
+    if (actionType === "RELEASE_SERVICE_CHARGE_PAYOUT") {
+      const amount = Number(payload.distributedPool || req.amount || 0);
+      setCashPool((prev) => ({ ...prev, bankOperating: Math.max(0, prev.bankOperating - amount) }));
+      const glLines = [
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: payload.ref || req.id,
+          sourceModule: "HR-Payroll",
+          accountCode: "2150",
+          accountName: "2150 - Accrued Service Charge Liability (RA 11360)",
+          memo: `Statutory 85% Service Charge Distribution Payout`,
+          debit: amount,
+          credit: 0,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        },
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: payload.ref || req.id,
+          sourceModule: "Treasury",
+          accountCode: "1030",
+          accountName: "1030 - Operating Bank Account - Primary",
+          memo: `Bank Direct EFT: 85% Service Charge Pool to Employees`,
+          debit: 0,
+          credit: amount,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        }
+      ];
+      setJournalEntries((prev) => [...glLines, ...prev]);
+      showToast(`Cross-Module Sync: 85% Service Charge Pool (₱${amount.toLocaleString()}) disbursed and liability cleared!`, "success");
+    }
+
+    if (actionType === "APPROVE_GUEST_REFUND_CLAIM") {
+      const amount = Number(payload.amount || req.amount || 0);
+      setCashPool((prev) => ({ ...prev, pettyCash: Math.max(0, prev.pettyCash - amount) }));
+      const glLines = [
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: payload.claimId || req.id,
+          sourceModule: "Hotel-MNGT",
+          accountCode: "4010",
+          accountName: "4010 - Hotel Room Revenue (Refund Allowance)",
+          memo: `Guest Refund Allowance: ${payload.guestName} (${payload.roomNumber})`,
+          debit: amount,
+          credit: 0,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        },
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: payload.claimId || req.id,
+          sourceModule: "Hotel-MNGT",
+          accountCode: "1010",
+          accountName: "1010 - Front Desk Cash Float (Active Till)",
+          memo: `Cash Float Refund Payout: ${payload.guestName}`,
+          debit: 0,
+          credit: amount,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        }
+      ];
+      setJournalEntries((prev) => [...glLines, ...prev]);
+      showToast(`Cross-Module Sync: Guest Refund for ${payload.guestName} (₱${amount.toLocaleString()}) authorized and float reconciled!`, "success");
+    }
+
+    if (actionType === "APPROVE_PURVEYOR_INVOICE") {
+      const amount = Number(payload.amount || req.amount || 0);
+      const ewt = Number(payload.ewtAmount || Math.round(amount * 0.01));
+      const netPayable = amount - ewt;
+      const invoiceId = payload.id || `INV-SC-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      const newInv = {
+        id: invoiceId,
+        vendor: payload.vendor || payload.entityName || "Purveyor Vendor",
+        tin: payload.tin || "123-456-789-000",
+        invoiceDate: payload.invoiceDate || new Date().toISOString().split("T")[0],
+        dueDate: payload.dueDate || new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
+        amount: netPayable,
+        status: "Unpaid" as const,
+        category: payload.category || "Food & Beverage Ingredients",
+        paymentTerms: payload.paymentTerms || "Net 30 Days",
+        matchStatus: "Verified (PO+DR+Inv)",
+        poNumber: payload.poNumber || `PO-2026-${Math.floor(100 + Math.random() * 900)}`,
+        bankDetails: payload.bankDetails || "BDO Unibank 0019-4829-1029",
+        ewtRate: 0.01,
+        ewtAmount: ewt
+      };
+      setApInvoices((prev) => [newInv, ...prev]);
+      setApArInvoices((prev) => [
+        {
+          id: invoiceId,
+          entityName: newInv.vendor,
+          tin: newInv.tin,
+          type: "AP",
+          bankDetails: newInv.bankDetails,
+          amount: newInv.amount,
+          status: "Approved",
+          category: newInv.category
+        },
+        ...prev
+      ]);
+
+      const glLines = [
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: invoiceId,
+          sourceModule: "Supply-Chain",
+          accountCode: "1300",
+          accountName: "1300 - Inventory Asset (Food & Beverage Stock)",
+          memo: `Purveyor Stock Receipt: ${newInv.vendor}`,
+          debit: amount,
+          credit: 0,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        },
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: invoiceId,
+          sourceModule: "Supply-Chain",
+          accountCode: "2010",
+          accountName: "2010 - Trade Accounts Payable (Net Purveyor Liability)",
+          memo: `Trade AP Accrual: ${newInv.vendor}`,
+          debit: 0,
+          credit: netPayable,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        },
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: invoiceId,
+          sourceModule: "Supply-Chain",
+          accountCode: "2140",
+          accountName: "2140 - Expanded Withholding Tax Payable (BIR Form 1601-EQ)",
+          memo: `1% Creditable Withholding Tax (ATC WC158)`,
+          debit: 0,
+          credit: ewt,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        }
+      ];
+      setJournalEntries((prev) => [...glLines, ...prev]);
+      showToast(`Cross-Module Sync: Purveyor Invoice ${invoiceId} approved into AP Schedule & GL!`, "success");
+    }
+
+    if (actionType === "APPROVE_VEHICLE_MAINTENANCE_DISBURSEMENT") {
+      const amount = Number(payload.amount || req.amount || 0);
+      setCashPool((prev) => ({ ...prev, bankOperating: Math.max(0, prev.bankOperating - amount) }));
+      const newDisb: any = {
+        id: `WO-DISB-${payload.workOrderId || req.id}`,
+        payee: payload.serviceCenter || "CASA Commercial Vehicle Service Center",
+        swift: "BDO-PESONET",
+        nationalId: "****FLEET",
+        netPay: amount,
+        token: `TKN-${Date.now().toString().slice(-6)}`,
+        department: "Fleet Operations & Logistics",
+        voucherNo: `VCH-${payload.workOrderId || req.id}`,
+        purpose: `Vehicle Maintenance: ${payload.vehiclePlate} - ${payload.workDescription}`,
+        timestamp: new Date().toISOString().replace("T", " ").substring(0, 16),
+        status: "APPROVED_AND_DISBURSED"
+      };
+      setDisbursementData((prev) => [newDisb, ...prev]);
+
+      const glLines = [
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: payload.workOrderId || req.id,
+          sourceModule: "FleetOps",
+          accountCode: "5205",
+          accountName: "5205 - Commercial Vehicle Maintenance, Repairs & Spare Parts",
+          memo: `Work Order: ${payload.vehiclePlate} (${payload.workDescription})`,
+          debit: amount,
+          credit: 0,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        },
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: payload.workOrderId || req.id,
+          sourceModule: "Treasury",
+          accountCode: "1030",
+          accountName: "1030 - Operating Bank Account - Primary",
+          memo: `EFT Service Center Payment: ${payload.serviceCenter}`,
+          debit: 0,
+          credit: amount,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        }
+      ];
+      setJournalEntries((prev) => [...glLines, ...prev]);
+      showToast(`Cross-Module Sync: Vehicle Work Order for ${payload.vehiclePlate} (₱${amount.toLocaleString()}) authorized & disbursed!`, "success");
+    }
+
+    if (actionType === "LIQUIDATE_PALENGKE_PETTY_CASH") {
+      const amount = Number(payload.amount || req.amount || 0);
+      const glLines = [
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: payload.ref || req.id,
+          sourceModule: "Resto-MNGT",
+          accountCode: "5010",
+          accountName: "5010 - Cost of Goods Sold - Fresh Produce & Meats",
+          memo: `Palengke Wet Market Liquidation: ${payload.memo || "Fresh Produce"}`,
+          debit: amount,
+          credit: 0,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        },
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: payload.ref || req.id,
+          sourceModule: "Resto-MNGT",
+          accountCode: "1010",
+          accountName: "1010 - Petty Cash & Kitchen Purchasing Float",
+          memo: `Replenishment / Liquidation Relief`,
+          debit: 0,
+          credit: amount,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        }
+      ];
+      setJournalEntries((prev) => [...glLines, ...prev]);
+      showToast(`Cross-Module Sync: Palengke Liquidation (₱${amount.toLocaleString()}) approved and expensed to COGS!`, "success");
+    }
+
+    if (actionType === "RESTRICT_PURCHASE_REQUISITIONS") {
+      try {
+        localStorage.setItem("horeca_po_freeze_active", "true");
+      } catch (e) {}
+      showToast(`Governance Enforced: Food Cost purchase requisition freeze approved and locked across Supply Chain!`, "warning");
+    }
+
+    if (actionType === "COMMIT_INVENTORY_ADJUSTMENT") {
+      const amount = Number(payload.amount || req.amount || 0);
+      const glLines = [
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: payload.ref || req.id,
+          sourceModule: "Supply-Chain",
+          accountCode: "5010",
+          accountName: "5010 - Inventory Shrinkage, Spoilage & Count Variance",
+          memo: `Inventory Audit Variance Adjustment: ${payload.reason || "Physical Count Reconciliation"}`,
+          debit: amount,
+          credit: 0,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        },
+        {
+          id: `LP-${Math.floor(1000 + Math.random() * 9000)}`,
+          date: new Date().toISOString().split("T")[0],
+          ref: payload.ref || req.id,
+          sourceModule: "Supply-Chain",
+          accountCode: "1300",
+          accountName: "1300 - Inventory Asset (Food & Beverage Stock)",
+          memo: `Inventory Asset Write-Down to Physical Count`,
+          debit: 0,
+          credit: amount,
+          status: "COMMITTED",
+          postedBy: req.requestedBy,
+          approvedBy: "Super Administrator"
+        }
+      ];
+      setJournalEntries((prev) => [...glLines, ...prev]);
+      showToast(`Cross-Module Sync: Inventory Adjustment (₱${amount.toLocaleString()}) committed to General Ledger!`, "success");
     }
   };
 
@@ -2577,16 +3157,19 @@ export default function IntegratedFinancialSystem() {
   };
 
   // Submit Action with Role Dispatch
+  // Submit Action with Two-Tier Role Dispatch (Subsystem/Admin -> Super Admin)
   const submitForApproval = (actionType: string, module: string, payload: any) => {
     const isSuperAdmin = currentUser?.role === "superadmin";
 
     const req = {
       id: `REQ-${Math.floor(100 + Math.random() * 900)}`,
       actionType,
-      requestedBy: currentUser?.name || "Standard Administrator",
+      requestedBy: currentUser?.name || "Operational User",
       timestamp: new Date().toISOString().replace("T", " ").substring(0, 16),
       module,
       payload,
+      status: isSuperAdmin ? "PENDING_SUPERADMIN" : "PENDING_ADMIN",
+      currentStage: isSuperAdmin ? "STAGE_2_SUPERADMIN" : "STAGE_1_ADMIN",
       impactSummary: `Impacts ${module} and reflects real-time synchronized entries in General Ledger, Cash Liquidity, and Reporting.`
     };
 
@@ -2601,14 +3184,14 @@ export default function IntegratedFinancialSystem() {
         newState: req
       });
     } else {
-      // Admin: Queued for Super Admin Governance Review
+      // Subsystem / Standard User: Queued for Admin Verification (Stage 1)
       setPendingApprovals((prev) => [req, ...prev]);
-      showToast(`Action queued for Super Admin Approval (${req.id})`, "info");
+      showToast(`Action queued for Admin Stage 1 Review (${req.id})`, "info");
 
       logAuditEvent({
         action: "QUEUE_APPROVAL_REQUEST",
         module: "Governance & Approvals",
-        description: `Admin submitted ${actionType} for Super Admin review (${req.id})`,
+        description: `Submitted ${actionType} for Admin verification (${req.id})`,
         status: "PENDING_APPROVAL",
         previousState: null,
         newState: req
@@ -2616,32 +3199,124 @@ export default function IntegratedFinancialSystem() {
     }
   };
 
-  const handleApproveRequest = (req: any) => {
-    executeApprovedAction(req);
-    setPendingApprovals((prev) => prev.filter((r) => r.id !== req.id));
+  // Stage 1: Admin reviews and forwards request to Super Admin
+  const handleAdminVerifyAndForward = (reqId: string, notes?: string) => {
+    const adminName = currentUser?.name || "Standard Administrator";
+    const timestamp = new Date().toISOString().replace("T", " ").substring(0, 16);
+    const verificationNotes = notes || "Verified compliance, supporting documents, and ledger allocation. Endorsed to Super Admin.";
+
+    let updatedReq: any = null;
+    setPendingApprovals((prev) =>
+      prev.map((r) => {
+        if (r.id === reqId) {
+          updatedReq = {
+            ...r,
+            status: "PENDING_SUPERADMIN",
+            currentStage: "STAGE_2_SUPERADMIN",
+            adminVerifiedBy: adminName,
+            adminVerifiedAt: timestamp,
+            adminNotes: verificationNotes
+          };
+          return updatedReq;
+        }
+        return r;
+      })
+    );
+
+    showToast(`Request ${reqId} verified and forwarded to Super Admin for executive authorization!`, "success");
 
     logAuditEvent({
-      action: "APPROVE_GOVERNANCE_REQUEST",
+      action: "ADMIN_VERIFY_AND_FORWARD",
       module: "Governance & Approvals",
-      description: `Super Administrator authorized and executed request ${req.id} (${req.actionType})`,
-      previousState: { requestId: req.id, status: "PENDING_APPROVAL", payload: req.payload },
-      newState: { requestId: req.id, status: "COMMITTED_AND_SYNCED", approvedAt: new Date().toISOString() }
+      description: `Admin ${adminName} verified request ${reqId} and forwarded to Super Admin for final approval.`,
+      status: "PENDING_APPROVAL",
+      previousState: { requestId: reqId, status: "PENDING_ADMIN" },
+      newState: updatedReq
     });
+
+    try {
+      window.dispatchEvent(new CustomEvent("fms-sync-event", { detail: { action: "ADMIN_VERIFY", reqId } }));
+    } catch (e) {}
   };
 
-  const handleRejectRequest = (reqId: string) => {
-    const target = pendingApprovals.find((r) => r.id === reqId);
-    setPendingApprovals((prev) => prev.filter((r) => r.id !== reqId));
-    showToast(`Request ${reqId} was rejected by Super Administrator`, "warning");
+  // Stage 2: Super Admin grants final executive approval and commits
+  const handleApproveRequest = (req: any) => {
+    if (currentUser?.role !== "superadmin") {
+      showToast("Only the Super Administrator has final executive approval authority. Admins verify and forward to the Super Admin.", "warning");
+      return;
+    }
+
+    executeApprovedAction(req);
+
+    const superAdminName = currentUser?.name || "Super Administrator";
+    const timestamp = new Date().toISOString().replace("T", " ").substring(0, 16);
+
+    setPendingApprovals((prev) =>
+      prev.map((r) =>
+        r.id === req.id
+          ? {
+              ...r,
+              status: "APPROVED",
+              currentStage: "FINAL_APPROVED",
+              superAdminApprovedBy: superAdminName,
+              superAdminApprovedAt: timestamp
+            }
+          : r
+      )
+    );
+
+    showToast(`Super Admin authorized and finalized ${req.id} (${req.actionType})! Cross-module synchronized.`, "success");
+
+    logAuditEvent({
+      action: "SUPERADMIN_EXECUTIVE_APPROVAL",
+      module: "Governance & Approvals",
+      description: `Super Administrator ${superAdminName} authorized and executed request ${req.id} (${req.actionType}). Committed to Master Ledger and Treasury.`,
+      previousState: { requestId: req.id, status: req.status, payload: req.payload },
+      newState: { requestId: req.id, status: "APPROVED", approvedAt: timestamp }
+    });
+
+    try {
+      window.dispatchEvent(new CustomEvent("fms-sync-event", { detail: { action: "SUPERADMIN_APPROVE", reqId: req.id } }));
+    } catch (e) {}
+  };
+
+  const handleRejectRequest = (reqId: string, reason?: string) => {
+    const rejector = currentUser?.name || "Administrator";
+    const timestamp = new Date().toISOString().replace("T", " ").substring(0, 16);
+    const rejectionReason = reason || `Rejected by ${currentUser?.role === "superadmin" ? "Super Administrator" : "Administrator"}.`;
+
+    let target: any = null;
+    setPendingApprovals((prev) =>
+      prev.map((r) => {
+        if (r.id === reqId) {
+          target = {
+            ...r,
+            status: "REJECTED",
+            currentStage: "REJECTED",
+            rejectedBy: rejector,
+            rejectedAt: timestamp,
+            rejectionReason
+          };
+          return target;
+        }
+        return r;
+      })
+    );
+
+    showToast(`Request ${reqId} was rejected by ${rejector}`, "warning");
 
     logAuditEvent({
       action: "REJECT_GOVERNANCE_REQUEST",
       module: "Governance & Approvals",
-      description: `Super Administrator rejected request ${reqId}`,
+      description: `${rejector} rejected request ${reqId}: ${rejectionReason}`,
       status: "REJECTED",
-      previousState: target || { requestId: reqId, status: "PENDING_APPROVAL" },
-      newState: { requestId: reqId, status: "REJECTED", rejectedAt: new Date().toISOString() }
+      previousState: { requestId: reqId, status: "PENDING" },
+      newState: target
     });
+
+    try {
+      window.dispatchEvent(new CustomEvent("fms-sync-event", { detail: { action: "REJECT_REQUEST", reqId } }));
+    } catch (e) {}
   };
 
   // General Ledger Computations
@@ -2707,47 +3382,96 @@ export default function IntegratedFinancialSystem() {
               </div>
             </div>
 
-            {/* Middle: 5 Connected Subsystems Badge Strip */}
+            {/* Middle: 5 Connected Subsystems Badge Strip (Clickable directly to each Subsystem) */}
             <div className="relative z-10 my-6 space-y-2 font-['IBM_Plex_Mono'] text-[11px]">
-              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                Live Interconnected Systems
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                  Live Interconnected Systems
+                </span>
+                <span className="text-[9px] text-slate-500 uppercase tracking-widest">
+                  Click to Access
+                </span>
               </div>
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between bg-white/10 px-2.5 py-1.5 rounded-lg border border-white/10">
+                {/* 1. Hotel PMS */}
+                <button
+                  type="button"
+                  onClick={() => onSwitchSubsystem && onSwitchSubsystem("hotel_mngt")}
+                  className="w-full flex items-center justify-between bg-white/10 hover:bg-white/20 active:scale-[0.99] px-2.5 py-1.5 rounded-lg border border-white/10 hover:border-blue-400/50 transition-all text-left group cursor-pointer"
+                >
                   <span className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-                    <span>1. Hotel PMS</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 group-hover:scale-125 transition-transform"></span>
+                    <span className="group-hover:text-blue-200 transition-colors">1. Hotel PMS</span>
                   </span>
-                  <span className="text-[10px] text-blue-300">Folios &amp; Rooms</span>
-                </div>
-                <div className="flex items-center justify-between bg-white/10 px-2.5 py-1.5 rounded-lg border border-white/10">
+                  <span className="text-[10px] text-blue-300 flex items-center gap-1">
+                    <span>Folios &amp; Rooms</span>
+                    <ArrowRight className="h-2.5 w-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </span>
+                </button>
+
+                {/* 2. Restaurant POS */}
+                <button
+                  type="button"
+                  onClick={() => onSwitchSubsystem && onSwitchSubsystem("resto_mngt")}
+                  className="w-full flex items-center justify-between bg-white/10 hover:bg-white/20 active:scale-[0.99] px-2.5 py-1.5 rounded-lg border border-white/10 hover:border-amber-400/50 transition-all text-left group cursor-pointer"
+                >
                   <span className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                    <span>2. Restaurant POS</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 group-hover:scale-125 transition-transform"></span>
+                    <span className="group-hover:text-amber-200 transition-colors">2. Restaurant POS</span>
                   </span>
-                  <span className="text-[10px] text-amber-300">Dining &amp; SC Pool</span>
-                </div>
-                <div className="flex items-center justify-between bg-white/10 px-2.5 py-1.5 rounded-lg border border-white/10">
+                  <span className="text-[10px] text-amber-300 flex items-center gap-1">
+                    <span>Dining &amp; SC Pool</span>
+                    <ArrowRight className="h-2.5 w-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </span>
+                </button>
+
+                {/* 3. HRMS Payroll */}
+                <button
+                  type="button"
+                  onClick={() => onSwitchSubsystem && onSwitchSubsystem("hr_payroll")}
+                  className="w-full flex items-center justify-between bg-white/10 hover:bg-white/20 active:scale-[0.99] px-2.5 py-1.5 rounded-lg border border-white/10 hover:border-purple-400/50 transition-all text-left group cursor-pointer"
+                >
                   <span className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
-                    <span>3. HRMS Payroll</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-purple-400 group-hover:scale-125 transition-transform"></span>
+                    <span className="group-hover:text-purple-200 transition-colors">3. HRMS Payroll</span>
                   </span>
-                  <span className="text-[10px] text-purple-300">Wages &amp; WHT</span>
-                </div>
-                <div className="flex items-center justify-between bg-white/10 px-2.5 py-1.5 rounded-lg border border-white/10">
+                  <span className="text-[10px] text-purple-300 flex items-center gap-1">
+                    <span>Wages &amp; WHT</span>
+                    <ArrowRight className="h-2.5 w-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </span>
+                </button>
+
+                {/* 4. Supply Chain */}
+                <button
+                  type="button"
+                  onClick={() => onSwitchSubsystem && onSwitchSubsystem("supply_chain")}
+                  className="w-full flex items-center justify-between bg-white/10 hover:bg-white/20 active:scale-[0.99] px-2.5 py-1.5 rounded-lg border border-white/10 hover:border-emerald-400/50 transition-all text-left group cursor-pointer"
+                >
                   <span className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                    <span>4. Supply Chain</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 group-hover:scale-125 transition-transform"></span>
+                    <span className="group-hover:text-emerald-200 transition-colors">4. Supply Chain</span>
                   </span>
-                  <span className="text-[10px] text-emerald-300">Procure &amp; AP</span>
-                </div>
-                <div className="flex items-center justify-between bg-white/10 px-2.5 py-1.5 rounded-lg border border-white/10">
+                  <span className="text-[10px] text-emerald-300 flex items-center gap-1">
+                    <span>Procure &amp; AP</span>
+                    <ArrowRight className="h-2.5 w-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </span>
+                </button>
+
+                {/* 5. FleetOps */}
+                <button
+                  type="button"
+                  onClick={() => onSwitchSubsystem && onSwitchSubsystem("fleet_ops")}
+                  className="w-full flex items-center justify-between bg-white/10 hover:bg-white/20 active:scale-[0.99] px-2.5 py-1.5 rounded-lg border border-white/10 hover:border-cyan-400/50 transition-all text-left group cursor-pointer"
+                >
                   <span className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
-                    <span>5. FleetOps</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 group-hover:scale-125 transition-transform"></span>
+                    <span className="group-hover:text-cyan-200 transition-colors">5. FleetOps</span>
                   </span>
-                  <span className="text-[10px] text-cyan-300">Fuel, Shuttles &amp; Maint</span>
-                </div>
+                  <span className="text-[10px] text-cyan-300 flex items-center gap-1">
+                    <span>Fuel, Shuttles &amp; Maint</span>
+                    <ArrowRight className="h-2.5 w-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </span>
+                </button>
               </div>
             </div>
 
@@ -3163,6 +3887,39 @@ export default function IntegratedFinancialSystem() {
                 );
               })}
             </nav>
+
+            {onSwitchSubsystem && (
+              <div className="pt-3 border-t border-[#DFE1DB] space-y-1">
+                {!isSidebarCollapsed && (
+                  <p className="px-2 text-[10px] font-bold font-['IBM_Plex_Mono'] uppercase text-[#5C636F] flex items-center justify-between">
+                    <span>Operational Subsystems</span>
+                    <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">Live</span>
+                  </p>
+                )}
+                {[
+                  { id: "hr_payroll", label: "HR & Payroll", icon: Users, color: "text-indigo-600" },
+                  { id: "hotel_mngt", label: "Hotel Operations", icon: Building2, color: "text-sky-600" },
+                  { id: "resto_mngt", label: "Restaurant & F&B", icon: DollarSign, color: "text-rose-600" },
+                  { id: "supply_chain", label: "Supply Chain", icon: Database, color: "text-amber-600" },
+                  { id: "fleet_ops", label: "Fleet Logistics", icon: RefreshCw, color: "text-emerald-600" },
+                ].map((sub) => {
+                  const SubIcon = sub.icon;
+                  return (
+                    <button
+                      key={sub.id}
+                      onClick={() => onSwitchSubsystem(sub.id)}
+                      title={isSidebarCollapsed ? sub.label : undefined}
+                      className={`w-full flex items-center ${
+                        isSidebarCollapsed ? "justify-center px-0 py-2" : "justify-start space-x-2 px-3 py-2"
+                      } rounded-lg text-xs font-medium text-[#5C636F] hover:bg-[#F1F1ED] hover:text-[#1A1D21] transition-colors cursor-pointer`}
+                    >
+                      <SubIcon className={`h-4 w-4 shrink-0 ${sub.color}`} />
+                      {!isSidebarCollapsed && <span className="truncate">{sub.label}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Sidebar Footer Info */}
@@ -3521,72 +4278,451 @@ export default function IntegratedFinancialSystem() {
           )}
 
           {/* ==============================================================================
-              MODULE: APPROVALS QUEUE (TWO-TIER ADMIN -> SUPER ADMIN REVIEW)
+              MODULE: APPROVALS QUEUE (TWO-TIER: SUBSYSTEM -> ADMIN -> SUPER ADMIN)
              ============================================================================== */}
           {activeTab === "approvals" && (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center border-b border-[#DFE1DB] pb-4">
+            <div className="space-y-6">
+              {/* Header Title & Protocol Overview */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#DFE1DB] pb-4">
                 <div>
-                  <h2 className="text-2xl font-bold font-['Archivo']">Governance &amp; Approval Requests Queue</h2>
-                  <p className="text-xs text-[#5C636F]">
-                    {currentUser.role === "superadmin"
-                      ? "Review, inspect payload diffs, and approve actions across all connected modules"
-                      : "Track your pending submissions awaiting Super Admin authorization"}
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-2xl font-bold font-['Archivo'] text-[#1A1D21]">
+                      Two-Tier Governance &amp; Executive Approval Queue
+                    </h2>
+                    <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      Submodule Interop Active
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#5C636F] font-['IBM_Plex_Sans'] mt-1">
+                    When a subsystem makes a request, it goes to the <strong>Admin first (Stage 1)</strong>; once verified, the Admin sends it to the <strong>Super Admin (Stage 2)</strong> for final authorization.
                   </p>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs font-['IBM_Plex_Mono']">
+                  <span className="px-2.5 py-1 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg font-bold">
+                    Stage 1 (Admin): {pendingApprovals.filter((r) => r.status === "PENDING_ADMIN" || !r.status).length}
+                  </span>
+                  <span className="px-2.5 py-1 bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-lg font-bold">
+                    Stage 2 (Super Admin): {pendingApprovals.filter((r) => r.status === "PENDING_SUPERADMIN").length}
+                  </span>
                 </div>
               </div>
 
-              {pendingApprovals.length === 0 ? (
-                <div className="bg-white border border-[#DFE1DB] rounded-xl p-8 text-center text-sm font-['IBM_Plex_Mono'] text-[#5C636F] shadow-xs">
-                  No pending CRUD requests requiring Super Admin approval. All subsystems synchronized.
+              {/* Visual Two-Tier Protocol Chain Banner */}
+              <div className="bg-slate-900 text-white rounded-xl p-4 shadow-sm border border-slate-800">
+                <div className="text-[11px] font-['IBM_Plex_Mono'] uppercase tracking-wider text-slate-400 font-bold mb-3 flex items-center justify-between">
+                  <span>Authorized Two-Tier Approval Pipeline</span>
+                  <span className="text-emerald-400 font-bold">Role-Guarded Workflow</span>
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {pendingApprovals.map((req) => (
-                    <div
-                      key={req.id}
-                      className="bg-white border border-[#DFE1DB] p-4 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs"
-                    >
-                      <div className="space-y-1.5">
-                        <div className="flex items-center space-x-2">
-                          <span className="bg-[#FF6A3D]/10 text-[#FF6A3D] font-['IBM_Plex_Mono'] font-bold text-xs px-2 py-0.5 rounded border border-[#FF6A3D]/30">
-                            {req.id}
-                          </span>
-                          <span className="font-bold text-sm text-[#1A1D21]">{req.actionType}</span>
-                          <span className="text-xs text-[#5C636F]">({req.module})</span>
-                        </div>
-                        <p className="text-xs text-[#1A1D21] font-['IBM_Plex_Sans']">
-                          <strong>Cross-Module Impact:</strong> {req.impactSummary}
-                        </p>
-                        <p className="text-[11px] font-['IBM_Plex_Mono'] text-[#5C636F]">
-                          Submitted by {req.requestedBy} at {req.timestamp}
-                        </p>
-                      </div>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs font-['IBM_Plex_Mono']">
+                  <div className="bg-slate-800/80 border border-slate-700 p-2.5 rounded-lg">
+                    <span className="text-[10px] text-amber-400 font-bold block">STEP 1</span>
+                    <span className="font-bold text-white">Submodule Action</span>
+                    <p className="text-[11px] text-slate-400 mt-0.5 font-['IBM_Plex_Sans']">
+                      HR, Hotel, Resto, Supply Chain, or Fleet triggers financial request
+                    </p>
+                  </div>
+                  <div className="bg-slate-800/80 border border-amber-500/40 p-2.5 rounded-lg">
+                    <span className="text-[10px] text-amber-400 font-bold block">STEP 2 (STAGE 1)</span>
+                    <span className="font-bold text-amber-300">Admin Verification</span>
+                    <p className="text-[11px] text-slate-400 mt-0.5 font-['IBM_Plex_Sans']">
+                      Admin inspects docs, PO, and GL allocation; forwards to Super Admin
+                    </p>
+                  </div>
+                  <div className="bg-slate-800/80 border border-indigo-500/40 p-2.5 rounded-lg">
+                    <span className="text-[10px] text-indigo-400 font-bold block">STEP 3 (STAGE 2)</span>
+                    <span className="font-bold text-indigo-300">Super Admin Authorization</span>
+                    <p className="text-[11px] text-slate-400 mt-0.5 font-['IBM_Plex_Sans']">
+                      Executive final sign-off; authorizes release of funds and GL commit
+                    </p>
+                  </div>
+                  <div className="bg-slate-800/80 border border-emerald-500/40 p-2.5 rounded-lg">
+                    <span className="text-[10px] text-emerald-400 font-bold block">STEP 4</span>
+                    <span className="font-bold text-emerald-300">FMS Master Sync</span>
+                    <p className="text-[11px] text-slate-400 mt-0.5 font-['IBM_Plex_Sans']">
+                      Automatic double-entry balanced GL, Cash Pool, and Audit Trail update
+                    </p>
+                  </div>
+                </div>
+              </div>
 
-                      {currentUser.role === "superadmin" ? (
-                        <div className="flex items-center space-x-2 shrink-0">
-                          <button
-                            onClick={() => handleApproveRequest(req)}
-                            className="bg-[#157A4D] hover:bg-[#12633e] text-white px-3.5 py-2 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
-                          >
-                            <Check className="h-3.5 w-3.5" />
-                            <span>Approve &amp; Commit All Modules</span>
-                          </button>
-                          <button
-                            onClick={() => handleRejectRequest(req.id)}
-                            className="bg-[#B5281A] hover:bg-[#932014] text-white px-3.5 py-2 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                            <span>Reject</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-xs font-['IBM_Plex_Mono'] text-[#8A5A00] font-bold bg-[#8A5A00]/10 px-3 py-1.5 rounded-lg border border-[#8A5A00]/30 shrink-0">
-                          Awaiting Super Admin Review
-                        </span>
-                      )}
+              {/* Filter Tabs */}
+              <div className="flex flex-wrap items-center gap-2 border-b border-[#DFE1DB] pb-2 text-xs font-['IBM_Plex_Mono']">
+                <button
+                  onClick={() => setApprovalFilter("ALL")}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    approvalFilter === "ALL"
+                      ? "bg-[#1A1D21] text-white"
+                      : "bg-white border border-[#DFE1DB] text-[#5C636F] hover:text-[#1A1D21]"
+                  }`}
+                >
+                  All Submissions ({pendingApprovals.length})
+                </button>
+                <button
+                  onClick={() => setApprovalFilter("STAGE_1_ADMIN")}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    approvalFilter === "STAGE_1_ADMIN"
+                      ? "bg-amber-700 text-white"
+                      : "bg-amber-50 border border-amber-200 text-amber-900 hover:bg-amber-100"
+                  }`}
+                >
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>Stage 1: Pending Admin Review</span>
+                  <span className="bg-white/80 text-amber-900 text-[10px] px-1.5 py-0.2 rounded font-black">
+                    {pendingApprovals.filter((r) => r.status === "PENDING_ADMIN" || !r.status).length}
+                  </span>
+                </button>
+                <button
+                  onClick={() => setApprovalFilter("STAGE_2_SUPERADMIN")}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    approvalFilter === "STAGE_2_SUPERADMIN"
+                      ? "bg-indigo-700 text-white"
+                      : "bg-indigo-50 border border-indigo-200 text-indigo-900 hover:bg-indigo-100"
+                  }`}
+                >
+                  <ArrowRight className="h-3.5 w-3.5" />
+                  <span>Stage 2: Awaiting Super Admin</span>
+                  <span className="bg-white/80 text-indigo-900 text-[10px] px-1.5 py-0.2 rounded font-black">
+                    {pendingApprovals.filter((r) => r.status === "PENDING_SUPERADMIN").length}
+                  </span>
+                </button>
+                <button
+                  onClick={() => setApprovalFilter("COMPLETED")}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    approvalFilter === "COMPLETED"
+                      ? "bg-emerald-700 text-white"
+                      : "bg-emerald-50 border border-emerald-200 text-emerald-900 hover:bg-emerald-100"
+                  }`}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span>Completed / Synchronized</span>
+                  <span className="bg-white/80 text-emerald-900 text-[10px] px-1.5 py-0.2 rounded font-black">
+                    {pendingApprovals.filter((r) => r.status === "APPROVED" || r.status === "REJECTED").length}
+                  </span>
+                </button>
+              </div>
+
+              {/* Requests List */}
+              {(() => {
+                const filtered = pendingApprovals.filter((req) => {
+                  const st = req.status || "PENDING_ADMIN";
+                  if (approvalFilter === "STAGE_1_ADMIN") return st === "PENDING_ADMIN";
+                  if (approvalFilter === "STAGE_2_SUPERADMIN") return st === "PENDING_SUPERADMIN";
+                  if (approvalFilter === "COMPLETED") return st === "APPROVED" || st === "REJECTED";
+                  return true;
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="bg-white border border-[#DFE1DB] rounded-xl p-10 text-center text-sm font-['IBM_Plex_Mono'] text-[#5C636F] shadow-xs">
+                      No requests found matching this governance stage filter.
                     </div>
-                  ))}
+                  );
+                }
+
+                return (
+                  <div className="space-y-4">
+                    {filtered.map((req) => {
+                      const reqStatus = req.status || "PENDING_ADMIN";
+                      const isStage1 = reqStatus === "PENDING_ADMIN";
+                      const isStage2 = reqStatus === "PENDING_SUPERADMIN";
+                      const isApproved = reqStatus === "APPROVED";
+                      const isRejected = reqStatus === "REJECTED";
+
+                      const getModuleBadgeColor = (mod: string) => {
+                        switch (mod) {
+                          case "HR-Payroll":
+                            return "bg-indigo-50 text-indigo-700 border-indigo-200";
+                          case "Hotel-MNGT":
+                            return "bg-sky-50 text-sky-700 border-sky-200";
+                          case "Resto-MNGT":
+                            return "bg-rose-50 text-rose-700 border-rose-200";
+                          case "Supply-Chain":
+                            return "bg-amber-50 text-amber-700 border-amber-200";
+                          case "FleetOps":
+                            return "bg-emerald-50 text-emerald-700 border-emerald-200";
+                          default:
+                            return "bg-slate-100 text-slate-700 border-slate-300";
+                        }
+                      };
+
+                      return (
+                        <div
+                          key={req.id}
+                          className={`bg-white border p-5 rounded-xl shadow-xs transition-all ${
+                            isStage1
+                              ? "border-amber-300 ring-1 ring-amber-100"
+                              : isStage2
+                              ? "border-indigo-300 ring-1 ring-indigo-100"
+                              : isApproved
+                              ? "border-emerald-200 bg-emerald-50/20"
+                              : "border-slate-200 opacity-80"
+                          }`}
+                        >
+                          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                            <div className="space-y-2 flex-1">
+                              {/* Badges Bar */}
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="bg-slate-900 text-white font-['IBM_Plex_Mono'] font-bold text-xs px-2.5 py-0.5 rounded">
+                                  {req.id}
+                                </span>
+
+                                <span
+                                  className={`text-xs font-bold font-['IBM_Plex_Mono'] px-2 py-0.5 rounded border ${getModuleBadgeColor(
+                                    req.module
+                                  )}`}
+                                >
+                                  {req.module}
+                                </span>
+
+                                {/* Stage Badge */}
+                                {isStage1 && (
+                                  <span className="text-[11px] font-['IBM_Plex_Mono'] font-bold bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                    <Clock className="h-3 w-3" />
+                                    <span>Stage 1: Pending Admin Verification</span>
+                                  </span>
+                                )}
+
+                                {isStage2 && (
+                                  <span className="text-[11px] font-['IBM_Plex_Mono'] font-bold bg-indigo-100 text-indigo-900 border border-indigo-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                    <ArrowRight className="h-3 w-3 text-indigo-700" />
+                                    <span>Stage 2: Admin Verified &bull; Awaiting Super Admin</span>
+                                  </span>
+                                )}
+
+                                {isApproved && (
+                                  <span className="text-[11px] font-['IBM_Plex_Mono'] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                    <CheckCircle2 className="h-3 w-3 text-emerald-700" />
+                                    <span>Super Admin Approved &amp; Committed to FMS</span>
+                                  </span>
+                                )}
+
+                                {isRejected && (
+                                  <span className="text-[11px] font-['IBM_Plex_Mono'] font-bold bg-rose-100 text-rose-900 border border-rose-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                    <X className="h-3 w-3 text-rose-700" />
+                                    <span>Rejected</span>
+                                  </span>
+                                )}
+
+                                {req.amount !== undefined && (
+                                  <span className="text-xs font-['IBM_Plex_Mono'] font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                                    ₱{Number(req.amount).toLocaleString()}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Title & Description */}
+                              <div>
+                                <h3 className="text-base font-bold font-['Archivo'] text-[#1A1D21]">
+                                  {req.title || req.actionType}
+                                </h3>
+                                <p className="text-xs text-[#1A1D21] font-['IBM_Plex_Sans'] mt-1">
+                                  <strong>Cross-Module Impact:</strong> {req.impactSummary}
+                                </p>
+                              </div>
+
+                              {/* Requester & Submission Time */}
+                              <div className="text-[11px] font-['IBM_Plex_Mono'] text-[#5C636F] flex flex-wrap items-center gap-x-4 gap-y-1">
+                                <span>Requested by: <strong>{req.requestedBy}</strong></span>
+                                <span>Submitted: {req.timestamp}</span>
+                              </div>
+
+                              {/* Admin Verification Stamp (if Stage 2 or Approved) */}
+                              {req.adminVerifiedBy && (
+                                <div className="bg-indigo-50/80 border border-indigo-200 rounded-lg p-2.5 text-xs font-['IBM_Plex_Mono'] text-indigo-950 space-y-1">
+                                  <div className="flex items-center gap-1.5 font-bold text-indigo-800">
+                                    <ShieldCheck className="h-3.5 w-3.5" />
+                                    <span>Tier 1 Admin Verification Stamp:</span>
+                                    <span>{req.adminVerifiedBy}</span>
+                                    <span className="text-[10px] text-indigo-600 font-normal">({req.adminVerifiedAt})</span>
+                                  </div>
+                                  {req.adminNotes && (
+                                    <p className="text-[11px] text-indigo-900 font-['IBM_Plex_Sans'] italic pl-5">
+                                      &ldquo;{req.adminNotes}&rdquo;
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Super Admin Executive Stamp (if Approved) */}
+                              {req.superAdminApprovedBy && (
+                                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 text-xs font-['IBM_Plex_Mono'] text-emerald-950 flex items-center gap-2">
+                                  <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
+                                  <span>
+                                    <strong>Executive Authorization:</strong> Final sign-off by Super Admin <strong>{req.superAdminApprovedBy}</strong> on {req.superAdminApprovedAt}. Master GL and Cash liquidity reconciled.
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Rejection Stamp */}
+                              {isRejected && req.rejectedBy && (
+                                <div className="bg-rose-50 border border-rose-200 rounded-lg p-2.5 text-xs font-['IBM_Plex_Mono'] text-rose-950 flex items-center gap-2">
+                                  <AlertCircle className="h-4 w-4 text-rose-700 shrink-0" />
+                                  <span>
+                                    <strong>Rejected by:</strong> {req.rejectedBy} on {req.rejectedAt}. Reason: {req.rejectionReason}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Action Controls Section */}
+                            <div className="flex flex-col sm:flex-row lg:flex-col items-stretch sm:items-center lg:items-end gap-2 shrink-0">
+                              {/* STAGE 1: ADMIN ACTIONS */}
+                              {isStage1 && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setAdminVerifyModal({
+                                        isOpen: true,
+                                        req,
+                                        notes: "Verified documentation, supplier credentials, and cost center budget allocation. Endorsed for executive authorization."
+                                      })
+                                    }
+                                    className="bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center justify-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
+                                    title="Verify request details and forward to Super Admin"
+                                  >
+                                    <ArrowRight className="h-3.5 w-3.5" />
+                                    <span>Verify &amp; Send to Super Admin</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRejectRequest(req.id, "Rejected by Admin during Stage 1 Review.")}
+                                    className="bg-white border border-[#DFE1DB] hover:bg-rose-50 hover:text-rose-700 text-[#5C636F] px-3 py-2 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                    <span>Reject Request</span>
+                                  </button>
+                                </>
+                              )}
+
+                              {/* STAGE 2: SUPER ADMIN ACTIONS */}
+                              {isStage2 && (
+                                <>
+                                  {currentUser.role === "superadmin" ? (
+                                    <div className="flex flex-col gap-2 w-full sm:w-auto">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleApproveRequest(req)}
+                                        className="bg-[#157A4D] hover:bg-[#12633e] text-white px-4 py-2.5 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center justify-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
+                                      >
+                                        <Check className="h-3.5 w-3.5" />
+                                        <span>Authorize &amp; Commit to FMS</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRejectRequest(req.id, "Rejected by Super Administrator.")}
+                                        className="bg-[#B5281A] hover:bg-[#932014] text-white px-3 py-2 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center justify-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
+                                      >
+                                        <X className="h-3.5 w-3.5" />
+                                        <span>Reject</span>
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="bg-indigo-50 border border-indigo-200 text-indigo-900 px-3 py-2 rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold text-center">
+                                      <span>Forwarded to Super Admin</span>
+                                      <span className="block text-[10px] text-indigo-600 font-normal">Awaiting Executive Sign-Off</span>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+
+                              {/* COMPLETED STATUS DISPLAY */}
+                              {(isApproved || isRejected) && (
+                                <span className="text-[11px] font-['IBM_Plex_Mono'] text-slate-400 italic">
+                                  Workflow Closed
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+              {/* ADMIN VERIFICATION MODAL DIALOG */}
+              {adminVerifyModal.isOpen && adminVerifyModal.req && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+                  <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 border border-slate-200 shadow-2xl">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 bg-amber-100 text-amber-800 rounded-lg">
+                          <ShieldCheck className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-base font-['Archivo'] text-slate-900">
+                            Admin Stage 1 Verification
+                          </h3>
+                          <p className="text-[11px] text-slate-500 font-['IBM_Plex_Mono']">
+                            Request {adminVerifyModal.req.id} &bull; {adminVerifyModal.req.module}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setAdminVerifyModal({ isOpen: false, req: null, notes: "" })}
+                        className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="space-y-3 text-xs font-['IBM_Plex_Sans'] text-slate-700 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                      <p>
+                        <strong>Action Title:</strong> {adminVerifyModal.req.title}
+                      </p>
+                      <p>
+                        <strong>Requester:</strong> {adminVerifyModal.req.requestedBy}
+                      </p>
+                      {adminVerifyModal.req.amount && (
+                        <p>
+                          <strong>Financial Amount:</strong> ₱{Number(adminVerifyModal.req.amount).toLocaleString()}
+                        </p>
+                      )}
+                      <p>
+                        <strong>Impact Summary:</strong> {adminVerifyModal.req.impactSummary}
+                      </p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold font-['IBM_Plex_Mono'] uppercase text-slate-600 block">
+                        Admin Endorsement &amp; Verification Notes:
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={adminVerifyModal.notes}
+                        onChange={(e) => setAdminVerifyModal((prev) => ({ ...prev, notes: e.target.value }))}
+                        placeholder="Add review notes, confirmation of supporting vouchers, or PO verification..."
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-['IBM_Plex_Sans'] focus:outline-none focus:border-slate-800"
+                      />
+                      <p className="text-[10px] text-slate-400 italic">
+                        * Once forwarded, this request immediately lands in the Super Admin's executive approval desk.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => setAdminVerifyModal({ isOpen: false, req: null, notes: "" })}
+                        className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleAdminVerifyAndForward(adminVerifyModal.req.id, adminVerifyModal.notes);
+                          setAdminVerifyModal({ isOpen: false, req: null, notes: "" });
+                        }}
+                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        <ArrowRight className="h-3.5 w-3.5" />
+                        <span>Confirm &amp; Forward to Super Admin</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

@@ -71,6 +71,7 @@ export default function UserManagement({
   // Unmask Password Management State
   const [newUnmaskPass, setNewUnmaskPass] = useState("");
   const [showUnmaskPass, setShowUnmaskPass] = useState(false);
+  const [showNewUnmaskPass, setShowNewUnmaskPass] = useState(false);
   const [unmaskSuccess, setUnmaskSuccess] = useState("");
 
   // Search & Filter
@@ -393,18 +394,29 @@ export default function UserManagement({
             )}
 
             <div className="bg-[#FBFBFA] border border-[#DFE1DB] rounded-lg p-3 space-y-2">
-              <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold text-[#5C636F] uppercase block">
-                Current Unmask Authorization Password:
-              </span>
-              <div className="flex items-center justify-between bg-white border border-[#DFE1DB] px-3 py-1.5 rounded-md font-['IBM_Plex_Mono'] text-xs font-bold text-[#1A1D21]">
-                <span>{showUnmaskPass ? unmaskPassword : "••••••••••••"}</span>
-                <button
-                  type="button"
-                  onClick={() => setShowUnmaskPass(!showUnmaskPass)}
-                  className="text-[#5C636F] hover:text-[#1A1D21] cursor-pointer"
-                >
-                  {showUnmaskPass ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </button>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold text-[#5C636F] uppercase">
+                  Current Authorization Status:
+                </span>
+                <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-['IBM_Plex_Mono'] font-bold border border-emerald-200">
+                  Configured &amp; Active
+                </span>
+              </div>
+              <div className="flex items-center justify-between bg-white border border-[#DFE1DB] px-3 py-2 rounded-md font-['IBM_Plex_Mono'] text-xs font-bold text-[#1A1D21]">
+                <span className="text-[#5C636F] font-normal">Current Password:</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm tracking-wider">
+                    {showUnmaskPass ? unmaskPassword : "••••••••••••"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowUnmaskPass(!showUnmaskPass)}
+                    className="text-[#5C636F] hover:text-[#1A1D21] cursor-pointer p-0.5"
+                    title={showUnmaskPass ? "Hide password" : "Show password"}
+                  >
+                    {showUnmaskPass ? <EyeOff className="h-3.5 w-3.5 text-[#FF6A3D]" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -413,14 +425,24 @@ export default function UserManagement({
                 <label className="font-bold font-['IBM_Plex_Mono'] text-[#5C636F] uppercase text-[10px]">
                   Set New Unmask Password
                 </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. #S230117482"
-                  value={newUnmaskPass}
-                  onChange={(e) => setNewUnmaskPass(e.target.value)}
-                  className="w-full bg-[#F1F1ED] border border-[#DFE1DB] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#1A1D21] font-['IBM_Plex_Mono']"
-                />
+                <div className="relative">
+                  <input
+                    type={showNewUnmaskPass ? "text" : "password"}
+                    required
+                    placeholder="Enter new unmask password"
+                    value={newUnmaskPass}
+                    onChange={(e) => setNewUnmaskPass(e.target.value)}
+                    className="w-full bg-[#F1F1ED] border border-[#DFE1DB] rounded-lg pl-3 pr-10 py-2 text-xs focus:outline-none focus:border-[#1A1D21] font-['IBM_Plex_Mono']"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewUnmaskPass(!showNewUnmaskPass)}
+                    className="absolute right-3 top-2.5 text-[#5C636F] hover:text-[#1A1D21] cursor-pointer p-0.5 rounded"
+                    title={showNewUnmaskPass ? "Hide password" : "Show password"}
+                  >
+                    {showNewUnmaskPass ? <EyeOff className="h-3.5 w-3.5 text-[#FF6A3D]" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
               </div>
 
               <button
