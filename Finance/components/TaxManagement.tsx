@@ -17,7 +17,11 @@ import {
   Printer,
   Sparkles,
   Info,
-  Clock
+  Clock,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Minimize2
 } from "lucide-react";
 import PesoSign from "./PesoSign";
 import ExportButton from "./ExportButton";
@@ -145,6 +149,8 @@ export default function TaxManagement({
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isComplianceReportOpen, setIsComplianceReportOpen] = useState(false);
+  const [complianceZoom, setComplianceZoom] = useState<number>(85);
+  const [isReportMaximized, setIsReportMaximized] = useState<boolean>(false);
   const [selectedCertificate, setSelectedCertificate] = useState<TaxTransaction | null>(null);
 
   // New Tax Filing Form State
@@ -321,9 +327,7 @@ export default function TaxManagement({
             <span className="text-[11px] font-bold font-['IBM_Plex_Mono'] uppercase text-[#5C636F]">
               BUREAU OF INTERNAL REVENUE (BIR) / PHILIPPINE TAX MATRIX
             </span>
-            <span className="bg-[#B5281A]/10 text-[#B5281A] px-2 py-0.5 rounded text-[10px] font-['IBM_Plex_Mono'] font-bold border border-[#B5281A]/20">
-              NATIONAL INTERNAL REVENUE CODE (NIRC / CREATE ACT)
-            </span>
+            
           </div>
           <h1 className="text-2xl font-bold font-['Archivo'] text-[#1A1D21] mt-1">
             Tax Management
@@ -891,10 +895,12 @@ export default function TaxManagement({
 
       {/* BIR / TAX COMPLIANCE REPORT MODAL */}
       {isComplianceReportOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-xl p-6 sm:p-8 space-y-6 max-w-4xl w-full border border-[#DFE1DB] shadow-2xl text-xs font-['IBM_Plex_Sans'] my-8">
-            {/* Header / Seal */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-[#DFE1DB] pb-4 gap-3">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-2 sm:p-4 z-50 overflow-y-auto backdrop-blur-xs">
+          <div className={`bg-white rounded-2xl border border-[#DFE1DB] shadow-2xl text-xs font-['IBM_Plex_Sans'] my-auto transition-all duration-200 flex flex-col overflow-hidden ${
+            isReportMaximized ? "w-[98vw] max-w-[98vw] h-[96vh]" : "max-w-6xl w-full max-h-[94vh]"
+          }`}>
+            {/* Header / Seal & Zoom Controls */}
+            <div className="p-5 sm:p-6 border-b border-[#DFE1DB] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white shrink-0">
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] uppercase tracking-widest text-[#5C636F] bg-slate-100 px-2 py-0.5 rounded">
@@ -911,249 +917,310 @@ export default function TaxManagement({
                   National Internal Revenue Code (NIRC) • Consolidated Quarterly &amp; Monthly Accrual Matrix
                 </p>
               </div>
-              <button
-                onClick={() => setIsComplianceReportOpen(false)}
-                className="text-[#5C636F] hover:text-[#1A1D21] text-base cursor-pointer p-1"
-                aria-label="Close modal"
-              >
-                ✕
-              </button>
-            </div>
 
-            {/* Corporate Taxpayer Registration Summary */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-[#F8F9F6] p-4 rounded-xl border border-[#DFE1DB]">
-              <div>
-                <span className="text-[10px] font-bold text-[#5C636F] block font-['IBM_Plex_Mono'] uppercase">
-                  Registered Corporate Taxpayer
-                </span>
-                <p className="font-bold text-xs text-[#1A1D21] mt-0.5">HORECA HOSPITALITY &amp; ASSETS CORP</p>
-                <p className="text-[11px] text-[#5C636F]">Large Taxpayers Service / Hospitality Sector</p>
-              </div>
-              <div>
-                <span className="text-[10px] font-bold text-[#5C636F] block font-['IBM_Plex_Mono'] uppercase">
-                  Taxpayer Identification &amp; RDO
-                </span>
-                <p className="font-bold font-['IBM_Plex_Mono'] text-xs text-[#1A1D21] mt-0.5">
-                  TIN: {maskField("009-881-229-000", "tin")}
-                </p>
-                <p className="text-[11px] text-[#5C636F]">Revenue District Office: RDO 044 (BGC)</p>
-              </div>
-              <div>
-                <span className="text-[10px] font-bold text-[#5C636F] block font-['IBM_Plex_Mono'] uppercase">
-                  Compliance Assessment Period
-                </span>
-                <p className="font-bold font-['IBM_Plex_Mono'] text-xs text-[#157A4D] mt-0.5">
-                  FY 2026 • Quarter 3 Cycle
-                </p>
-                <p className="text-[11px] text-[#5C636F]">Report Date: 2026-08-27</p>
-              </div>
-            </div>
+              {/* View & Zoom Controls */}
+              <div className="flex flex-wrap items-center gap-2 font-['IBM_Plex_Mono']">
+                {/* Zoom Out / In Controls */}
+                <div className="flex items-center bg-[#F1F1ED] p-1 rounded-lg border border-[#DFE1DB] text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setComplianceZoom((prev) => Math.max(65, prev - 10))}
+                    title="Zoom Out"
+                    className="p-1.5 hover:bg-white text-[#5C636F] hover:text-[#1A1D21] rounded cursor-pointer transition-colors"
+                  >
+                    <ZoomOut className="h-3.5 w-3.5" />
+                  </button>
 
-            {/* Executive Tax Remittance Summary Matrix */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="p-3 bg-white border border-[#DFE1DB] rounded-lg space-y-1">
-                <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] text-[#5C636F] uppercase block">
-                  Net VAT (12%)
-                </span>
-                <div className="text-base font-bold font-['IBM_Plex_Mono'] text-[#B5281A]">
-                  {maskCurrency(summary.netVatPayable)}
-                </div>
-                <div className="text-[10px] text-[#5C636F]">
-                  Output: {maskCurrency(summary.outputVat)} • Input: {maskCurrency(summary.inputVat)}
-                </div>
-              </div>
+                  {/* Preset Zoom Pills */}
+                  {[75, 85, 100].map((level) => (
+                    <button
+                      key={level}
+                      type="button"
+                      onClick={() => setComplianceZoom(level)}
+                      className={`px-2 py-0.5 rounded font-bold cursor-pointer transition-all ${
+                        complianceZoom === level
+                          ? "bg-white text-[#1A1D21] shadow-xs"
+                          : "text-[#5C636F] hover:text-[#1A1D21]"
+                      }`}
+                    >
+                      {level}%
+                    </button>
+                  ))}
 
-              <div className="p-3 bg-white border border-[#DFE1DB] rounded-lg space-y-1">
-                <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] text-[#5C636F] uppercase block">
-                  Expanded EWT
-                </span>
-                <div className="text-base font-bold font-['IBM_Plex_Mono'] text-[#8A5A00]">
-                  {maskCurrency(summary.totalEwt)}
+                  <button
+                    type="button"
+                    onClick={() => setComplianceZoom((prev) => Math.min(125, prev + 10))}
+                    title="Zoom In"
+                    className="p-1.5 hover:bg-white text-[#5C636F] hover:text-[#1A1D21] rounded cursor-pointer transition-colors"
+                  >
+                    <ZoomIn className="h-3.5 w-3.5" />
+                  </button>
                 </div>
-                <div className="text-[10px] text-[#5C636F]">Form 1601-EQ / Form 2307</div>
-              </div>
 
-              <div className="p-3 bg-white border border-[#DFE1DB] rounded-lg space-y-1">
-                <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] text-[#5C636F] uppercase block">
-                  Payroll Tax (1601-C)
-                </span>
-                <div className="text-base font-bold font-['IBM_Plex_Mono'] text-[#1A1D21]">
-                  {maskCurrency(summary.totalCompensationWithholding)}
-                </div>
-                <div className="text-[10px] text-[#5C636F]">TRAIN Law Graduated Table</div>
-              </div>
+                {/* Maximize / Restore Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setIsReportMaximized((prev) => !prev)}
+                  title={isReportMaximized ? "Restore Default Width" : "Expand to Fullscreen Width"}
+                  className="p-2 border border-[#DFE1DB] bg-white hover:bg-slate-50 text-[#5C636F] hover:text-[#1A1D21] rounded-lg cursor-pointer transition-colors"
+                >
+                  {isReportMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                </button>
 
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg space-y-1">
-                <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] text-emerald-800 uppercase block">
-                  Total Statutory Due
-                </span>
-                <div className="text-base font-bold font-['IBM_Plex_Mono'] text-emerald-700">
-                  {maskCurrency(summary.totalStatutoryPayable)}
-                </div>
-                <div className="text-[10px] text-emerald-800 font-semibold">Ready for eFPS Payment</div>
+                <button
+                  type="button"
+                  onClick={() => setIsComplianceReportOpen(false)}
+                  className="p-2 text-[#5C636F] hover:text-[#1A1D21] hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
+                  aria-label="Close modal"
+                >
+                  ✕
+                </button>
               </div>
             </div>
 
-            {/* Statutory Return Forms Schedule */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <h4 className="font-bold text-xs font-['Archivo'] text-[#1A1D21] uppercase tracking-wide">
-                  BIR Statutory Forms Filing Schedule &amp; eFPS Transmission Status
-                </h4>
-                <span className="text-[11px] font-['IBM_Plex_Mono'] text-[#5C636F]">
-                  4 Active Tax Schedules
-                </span>
+            {/* Document Body with Scalable Zoom */}
+            <div
+              className="p-6 sm:p-8 space-y-6 overflow-y-auto grow custom-scrollbar bg-[#FFFFFF]"
+              style={{ zoom: `${complianceZoom}%` }}
+            >
+              {/* Corporate Taxpayer Registration Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-[#F8F9F6] p-4 rounded-xl border border-[#DFE1DB]">
+                <div>
+                  <span className="text-[10px] font-bold text-[#5C636F] block font-['IBM_Plex_Mono'] uppercase">
+                    Registered Corporate Taxpayer
+                  </span>
+                  <p className="font-bold text-xs text-[#1A1D21] mt-0.5">HORECA HOSPITALITY &amp; ASSETS CORP</p>
+                  <p className="text-[11px] text-[#5C636F]">Large Taxpayers Service / Hospitality Sector</p>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-[#5C636F] block font-['IBM_Plex_Mono'] uppercase">
+                    Taxpayer Identification &amp; RDO
+                  </span>
+                  <p className="font-bold font-['IBM_Plex_Mono'] text-xs text-[#1A1D21] mt-0.5">
+                    TIN: {maskField("009-881-229-000", "tin")}
+                  </p>
+                  <p className="text-[11px] text-[#5C636F]">Revenue District Office: RDO 044 (BGC)</p>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-[#5C636F] block font-['IBM_Plex_Mono'] uppercase">
+                    Compliance Assessment Period
+                  </span>
+                  <p className="font-bold font-['IBM_Plex_Mono'] text-xs text-[#157A4D] mt-0.5">
+                    FY 2026 • Quarter 3 Cycle
+                  </p>
+                  <p className="text-[11px] text-[#5C636F]">Report Date: 2026-08-27</p>
+                </div>
               </div>
-              <div className="border border-[#DFE1DB] rounded-xl overflow-hidden">
-                <table className="w-full text-left text-xs font-['IBM_Plex_Mono']">
-                  <thead className="bg-[#F1F1ED] text-[10px] uppercase text-[#5C636F]">
-                    <tr>
-                      <th className="p-2.5">BIR Return Form</th>
-                      <th className="p-2.5">Tax Type Description</th>
-                      <th className="p-2.5">Statutory Due Date</th>
-                      <th className="p-2.5 text-right">Computed Due (PHP)</th>
-                      <th className="p-2.5 text-center">Filing Status</th>
-                      <th className="p-2.5 text-center">eFPS Confirmation</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#F1F1ED] text-xs">
-                    <tr>
-                      <td className="p-2.5 font-bold text-[#1A1D21]">BIR Form 2550Q</td>
-                      <td className="p-2.5 font-['IBM_Plex_Sans']">Quarterly Value-Added Tax (12% VAT)</td>
-                      <td className="p-2.5 text-[#5C636F]">25th of month following quarter</td>
-                      <td className="p-2.5 text-right font-bold text-[#B5281A]">{maskCurrency(summary.netVatPayable)}</td>
-                      <td className="p-2.5 text-center">
-                        <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-[10px] font-bold">
-                          Accrued
-                        </span>
-                      </td>
-                      <td className="p-2.5 text-center text-[#5C636F]">Pending Batch Transmit</td>
-                    </tr>
-                    <tr>
-                      <td className="p-2.5 font-bold text-[#1A1D21]">BIR Form 1601-EQ / 0619-E</td>
-                      <td className="p-2.5 font-['IBM_Plex_Sans']">Expanded Withholding Tax (Creditable)</td>
-                      <td className="p-2.5 text-[#5C636F]">10th / Last day of month after Q</td>
-                      <td className="p-2.5 text-right font-bold text-[#8A5A00]">{maskCurrency(summary.totalEwt)}</td>
-                      <td className="p-2.5 text-center">
-                        <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-[10px] font-bold">
-                          Accrued
-                        </span>
-                      </td>
-                      <td className="p-2.5 text-center text-[#5C636F]">Certificates Issued (2307)</td>
-                    </tr>
-                    <tr>
-                      <td className="p-2.5 font-bold text-[#1A1D21]">BIR Form 1601-C</td>
-                      <td className="p-2.5 font-['IBM_Plex_Sans']">Monthly Compensation Withholding (Payroll)</td>
-                      <td className="p-2.5 text-[#5C636F]">10th of following month</td>
-                      <td className="p-2.5 text-right font-bold text-[#1A1D21]">{maskCurrency(summary.totalCompensationWithholding)}</td>
-                      <td className="p-2.5 text-center">
-                        <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-[10px] font-bold">
-                          Accrued
-                        </span>
-                      </td>
-                      <td className="p-2.5 text-center text-[#5C636F]">Payroll Linked</td>
-                    </tr>
-                    <tr>
-                      <td className="p-2.5 font-bold text-[#1A1D21]">BIR Form 1702-Q</td>
-                      <td className="p-2.5 font-['IBM_Plex_Sans']">Quarterly Corporate Income Tax (25% CREATE)</td>
-                      <td className="p-2.5 text-[#5C636F]">60 days following quarter</td>
-                      <td className="p-2.5 text-right font-bold text-[#157A4D]">{maskCurrency(summary.totalCIT)}</td>
-                      <td className="p-2.5 text-center">
-                        <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-[10px] font-bold">
-                          {summary.totalCIT > 0 ? "Accrued" : "Estimated"}
-                        </span>
-                      </td>
-                      <td className="p-2.5 text-center text-[#5C636F]">Tax Model Verified</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
 
-            {/* Detailed Philippine Tax Entries Ledger */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <h4 className="font-bold text-xs font-['Archivo'] text-[#1A1D21] uppercase tracking-wide">
-                  Itemized Statutory Transactions &amp; Withholding Details
-                </h4>
-                <span className="text-[11px] font-['IBM_Plex_Mono'] text-[#5C636F]">
-                  Showing {transactions.length} verified tax records
-                </span>
+              {/* Executive Tax Remittance Summary Matrix */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3.5 bg-white border border-[#DFE1DB] rounded-xl space-y-1 shadow-xs">
+                  <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] text-[#5C636F] uppercase block">
+                    Net VAT (12%)
+                  </span>
+                  <div className="text-base font-bold font-['IBM_Plex_Mono'] text-[#B5281A]">
+                    {maskCurrency(summary.netVatPayable)}
+                  </div>
+                  <div className="text-[10px] text-[#5C636F]">
+                    Output: {maskCurrency(summary.outputVat)} • Input: {maskCurrency(summary.inputVat)}
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-white border border-[#DFE1DB] rounded-xl space-y-1 shadow-xs">
+                  <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] text-[#5C636F] uppercase block">
+                    Expanded EWT
+                  </span>
+                  <div className="text-base font-bold font-['IBM_Plex_Mono'] text-[#8A5A00]">
+                    {maskCurrency(summary.totalEwt)}
+                  </div>
+                  <div className="text-[10px] text-[#5C636F]">Form 1601-EQ / Form 2307</div>
+                </div>
+
+                <div className="p-3.5 bg-white border border-[#DFE1DB] rounded-xl space-y-1 shadow-xs">
+                  <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] text-[#5C636F] uppercase block">
+                    Payroll Tax (1601-C)
+                  </span>
+                  <div className="text-base font-bold font-['IBM_Plex_Mono'] text-[#1A1D21]">
+                    {maskCurrency(summary.totalCompensationWithholding)}
+                  </div>
+                  <div className="text-[10px] text-[#5C636F]">TRAIN Law Graduated Table</div>
+                </div>
+
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1 shadow-xs">
+                  <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] text-emerald-800 uppercase block">
+                    Total Statutory Due
+                  </span>
+                  <div className="text-base font-bold font-['IBM_Plex_Mono'] text-emerald-700">
+                    {maskCurrency(summary.totalStatutoryPayable)}
+                  </div>
+                  <div className="text-[10px] text-emerald-800 font-semibold">Ready for eFPS Payment</div>
+                </div>
               </div>
-              <div className="border border-[#DFE1DB] rounded-xl overflow-hidden max-h-56 overflow-y-auto">
-                <table className="w-full text-left text-xs font-['IBM_Plex_Mono']">
-                  <thead className="bg-[#F1F1ED] text-[10px] uppercase text-[#5C636F] sticky top-0">
-                    <tr>
-                      <th className="p-2">Record ID</th>
-                      <th className="p-2">Tax Type &amp; ATC</th>
-                      <th className="p-2">Purveyor / Entity Name</th>
-                      <th className="p-2">TIN</th>
-                      <th className="p-2 text-right">Taxable Base</th>
-                      <th className="p-2 text-right">Rate</th>
-                      <th className="p-2 text-right">Tax Due</th>
-                      <th className="p-2 text-center">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#F1F1ED]">
-                    {transactions.map((tx) => (
-                      <tr key={tx.id} className="hover:bg-slate-50">
-                        <td className="p-2 font-bold text-[#1A1D21]">{tx.id}</td>
-                        <td className="p-2">
-                          <span className="font-bold">{tx.taxType}</span>
-                          <span className="text-[10px] text-[#5C636F] block">ATC: {tx.atcCode || "WI100"}</span>
-                        </td>
-                        <td className="p-2 font-['IBM_Plex_Sans']">{maskField(tx.vendorOrCustomer, "name")}</td>
-                        <td className="p-2 text-[#5C636F]">{maskField(tx.tin, "tin")}</td>
-                        <td className="p-2 text-right">{maskCurrency(tx.taxableBase)}</td>
-                        <td className="p-2 text-right font-bold">{tx.ratePercent}%</td>
-                        <td className="p-2 text-right font-bold text-[#B5281A]">{maskCurrency(tx.computedTax)}</td>
-                        <td className="p-2 text-center">
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                            tx.status === "Claimable Credit" ? "bg-green-100 text-green-800" :
-                            tx.status === "Filed & Remitted" ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-800"
-                          }`}>
-                            {tx.status}
+
+              {/* Statutory Return Forms Schedule */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <h4 className="font-bold text-xs font-['Archivo'] text-[#1A1D21] uppercase tracking-wide">
+                    BIR Statutory Forms Filing Schedule &amp; eFPS Transmission Status
+                  </h4>
+                  <span className="text-[11px] font-['IBM_Plex_Mono'] text-[#5C636F]">
+                    4 Active Tax Schedules
+                  </span>
+                </div>
+                <div className="border border-[#DFE1DB] rounded-xl overflow-hidden shadow-xs">
+                  <table className="w-full text-left text-xs font-['IBM_Plex_Mono']">
+                    <thead className="bg-[#F1F1ED] text-[10px] uppercase text-[#5C636F]">
+                      <tr>
+                        <th className="p-2.5">BIR Return Form</th>
+                        <th className="p-2.5">Tax Type Description</th>
+                        <th className="p-2.5">Statutory Due Date</th>
+                        <th className="p-2.5 text-right">Computed Due (PHP)</th>
+                        <th className="p-2.5 text-center">Filing Status</th>
+                        <th className="p-2.5 text-center">eFPS Confirmation</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#F1F1ED] text-xs">
+                      <tr>
+                        <td className="p-2.5 font-bold text-[#1A1D21]">BIR Form 2550Q</td>
+                        <td className="p-2.5 font-['IBM_Plex_Sans']">Quarterly Value-Added Tax (12% VAT)</td>
+                        <td className="p-2.5 text-[#5C636F]">25th of month following quarter</td>
+                        <td className="p-2.5 text-right font-bold text-[#B5281A]">{maskCurrency(summary.netVatPayable)}</td>
+                        <td className="p-2.5 text-center">
+                          <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-[10px] font-bold">
+                            Accrued
                           </span>
                         </td>
+                        <td className="p-2.5 text-center text-[#5C636F]">Pending Batch Transmit</td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                      <tr>
+                        <td className="p-2.5 font-bold text-[#1A1D21]">BIR Form 1601-EQ / 0619-E</td>
+                        <td className="p-2.5 font-['IBM_Plex_Sans']">Expanded Withholding Tax (Creditable)</td>
+                        <td className="p-2.5 text-[#5C636F]">10th / Last day of month after Q</td>
+                        <td className="p-2.5 text-right font-bold text-[#8A5A00]">{maskCurrency(summary.totalEwt)}</td>
+                        <td className="p-2.5 text-center">
+                          <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-[10px] font-bold">
+                            Accrued
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-center text-[#5C636F]">Certificates Issued (2307)</td>
+                      </tr>
+                      <tr>
+                        <td className="p-2.5 font-bold text-[#1A1D21]">BIR Form 1601-C</td>
+                        <td className="p-2.5 font-['IBM_Plex_Sans']">Monthly Compensation Withholding (Payroll)</td>
+                        <td className="p-2.5 text-[#5C636F]">10th of following month</td>
+                        <td className="p-2.5 text-right font-bold text-[#1A1D21]">{maskCurrency(summary.totalCompensationWithholding)}</td>
+                        <td className="p-2.5 text-center">
+                          <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-[10px] font-bold">
+                            Accrued
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-center text-[#5C636F]">Payroll Linked</td>
+                      </tr>
+                      <tr>
+                        <td className="p-2.5 font-bold text-[#1A1D21]">BIR Form 1702-Q</td>
+                        <td className="p-2.5 font-['IBM_Plex_Sans']">Quarterly Corporate Income Tax (25% CREATE)</td>
+                        <td className="p-2.5 text-[#5C636F]">60 days following quarter</td>
+                        <td className="p-2.5 text-right font-bold text-[#157A4D]">{maskCurrency(summary.totalCIT)}</td>
+                        <td className="p-2.5 text-center">
+                          <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-[10px] font-bold">
+                            {summary.totalCIT > 0 ? "Accrued" : "Estimated"}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-center text-[#5C636F]">Tax Model Verified</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Detailed Philippine Tax Entries Ledger */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <h4 className="font-bold text-xs font-['Archivo'] text-[#1A1D21] uppercase tracking-wide">
+                    Itemized Statutory Transactions &amp; Withholding Details
+                  </h4>
+                  <span className="text-[11px] font-['IBM_Plex_Mono'] text-[#5C636F]">
+                    Showing {transactions.length} verified tax records
+                  </span>
+                </div>
+                <div className="border border-[#DFE1DB] rounded-xl overflow-hidden max-h-80 overflow-y-auto shadow-xs">
+                  <table className="w-full text-left text-xs font-['IBM_Plex_Mono']">
+                    <thead className="bg-[#F1F1ED] text-[10px] uppercase text-[#5C636F] sticky top-0">
+                      <tr>
+                        <th className="p-2.5">Record ID</th>
+                        <th className="p-2.5">Tax Type &amp; ATC</th>
+                        <th className="p-2.5">Purveyor / Entity Name</th>
+                        <th className="p-2.5">TIN</th>
+                        <th className="p-2.5 text-right">Taxable Base</th>
+                        <th className="p-2.5 text-right">Rate</th>
+                        <th className="p-2.5 text-right">Tax Due</th>
+                        <th className="p-2.5 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#F1F1ED]">
+                      {transactions.map((tx) => (
+                        <tr key={tx.id} className="hover:bg-slate-50">
+                          <td className="p-2.5 font-bold text-[#1A1D21]">{tx.id}</td>
+                          <td className="p-2.5">
+                            <span className="font-bold">{tx.taxType}</span>
+                            <span className="text-[10px] text-[#5C636F] block">ATC: {tx.atcCode || "WI100"}</span>
+                          </td>
+                          <td className="p-2.5 font-['IBM_Plex_Sans']">{maskField(tx.vendorOrCustomer, "name")}</td>
+                          <td className="p-2.5 text-[#5C636F]">{maskField(tx.tin, "tin")}</td>
+                          <td className="p-2.5 text-right">{maskCurrency(tx.taxableBase)}</td>
+                          <td className="p-2.5 text-right font-bold">{tx.ratePercent}%</td>
+                          <td className="p-2.5 text-right font-bold text-[#B5281A]">{maskCurrency(tx.computedTax)}</td>
+                          <td className="p-2.5 text-center">
+                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${
+                              tx.status === "Claimable Credit" ? "bg-green-100 text-green-800" :
+                              tx.status === "Filed & Remitted" ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-800"
+                            }`}>
+                              {tx.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Compliance Certification Statement */}
+              <div className="bg-[#F8F9F6] border border-[#DFE1DB] rounded-xl p-4 space-y-2 text-[11px] text-[#5C636F]">
+                <div className="flex items-center gap-2 font-bold text-[#1A1D21]">
+                  <ShieldCheck className="h-4 w-4 text-[#157A4D]" />
+                  <span>Statutory Compliance &amp; Truthfulness Declaration</span>
+                </div>
+                <p>
+                  I declare, under the penalties of perjury, that this Philippine Bureau of Internal Revenue (BIR) statutory compliance report has been made in good faith, verified by the Finance Department, and is to the best of our knowledge and belief, true and correct pursuant to the provisions of the National Internal Revenue Code (NIRC), as amended, and the regulations issued under authority thereof.
+                </p>
+                <div className="flex justify-between items-center pt-2 border-t border-[#DFE1DB] text-[10px] font-['IBM_Plex_Mono']">
+                  <span>Certified By: <strong>Finance Controller / Certified Tax Accountant</strong></span>
+                  <span className="text-[#157A4D] font-bold">DIGITALLY ACCREDITED • eFPS AUTHORIZED</span>
+                </div>
               </div>
             </div>
 
-            {/* Compliance Certification Statement */}
-            <div className="bg-[#F8F9F6] border border-[#DFE1DB] rounded-xl p-4 space-y-2 text-[11px] text-[#5C636F]">
-              <div className="flex items-center gap-2 font-bold text-[#1A1D21]">
-                <ShieldCheck className="h-4 w-4 text-[#157A4D]" />
-                <span>Statutory Compliance &amp; Truthfulness Declaration</span>
-              </div>
-              <p>
-                I declare, under the penalties of perjury, that this Philippine Bureau of Internal Revenue (BIR) statutory compliance report has been made in good faith, verified by the Finance Department, and is to the best of our knowledge and belief, true and correct pursuant to the provisions of the National Internal Revenue Code (NIRC), as amended, and the regulations issued under authority thereof.
-              </p>
-              <div className="flex justify-between items-center pt-2 border-t border-[#DFE1DB] text-[10px] font-['IBM_Plex_Mono']">
-                <span>Certified By: <strong>Finance Controller / Certified Tax Accountant</strong></span>
-                <span className="text-[#157A4D] font-bold">DIGITALLY ACCREDITED • eFPS AUTHORIZED</span>
-              </div>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="flex flex-wrap justify-between items-center gap-2 pt-3 border-t border-[#DFE1DB] font-['IBM_Plex_Mono']">
+            {/* Modal Actions Footer */}
+            <div className="p-4 sm:p-5 border-t border-[#DFE1DB] flex flex-wrap justify-between items-center gap-2 bg-[#F8F9F6] font-['IBM_Plex_Mono'] shrink-0">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="px-3.5 py-2 border border-[#DFE1DB] bg-white hover:bg-slate-50 text-[#1A1D21] rounded-lg font-bold flex items-center space-x-1.5 transition-colors cursor-pointer"
+                  className="px-3.5 py-2 border border-[#DFE1DB] bg-white hover:bg-slate-50 text-[#1A1D21] rounded-lg font-bold flex items-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
                 >
                   <Printer className="h-3.5 w-3.5 text-[#5C636F]" />
                   <span>Print Report</span>
                 </button>
                 <ExportButton getExportData={getExportData} buttonLabel="Download CSV / Excel" />
+                <span className="text-[10px] text-[#5C636F] hidden md:inline ml-2">
+                  Display Scale: {complianceZoom}%
+                </span>
               </div>
               <button
                 type="button"
                 onClick={() => setIsComplianceReportOpen(false)}
-                className="px-5 py-2 bg-[#1A1D21] text-white hover:bg-[#2A2E34] rounded-lg font-bold transition-colors cursor-pointer"
+                className="px-5 py-2 bg-[#1A1D21] text-white hover:bg-[#2A2E34] rounded-lg font-bold transition-colors cursor-pointer shadow-xs"
               >
                 Close Compliance Report
               </button>

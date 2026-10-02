@@ -77,6 +77,8 @@ export default function App() {
     }));
   };
 
+  const [subsystemLogoutConfirm, setSubsystemLogoutConfirm] = useState<string | null>(null);
+
   const handleSubsystemLogout = (subsystemId: string) => {
     try {
       sessionStorage.removeItem(`horeca_subsystem_session_${subsystemId}`);
@@ -85,6 +87,7 @@ export default function App() {
       ...prev,
       [subsystemId]: null
     }));
+    setSubsystemLogoutConfirm(null);
   };
 
   const currentOperationalSession = activeSubsystem !== "finance" ? subsystemSessions[activeSubsystem] : null;
@@ -133,7 +136,7 @@ export default function App() {
                 </span>
               </div>
               <button
-                onClick={() => handleSubsystemLogout(activeSubsystem)}
+                onClick={() => setSubsystemLogoutConfirm(activeSubsystem)}
                 title="Sign out of this subsystem"
                 className="px-2 py-1 bg-red-950/60 hover:bg-red-900 border border-red-800 text-red-300 rounded text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
               >
@@ -219,6 +222,49 @@ export default function App() {
           )
         )}
       </div>
+
+      {/* Subsystem Logout Confirmation Modal */}
+      {subsystemLogoutConfirm && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-[#DFE1DB] shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-red-100 text-red-700 rounded-xl">
+                <LogOut className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base font-['Archivo'] text-[#1A1D21]">
+                  Sign Out of Subsystem
+                </h3>
+                <p className="text-xs text-[#5C636F] font-['IBM_Plex_Mono']">
+                  {SUBSYSTEM_ACCOUNTS[subsystemLogoutConfirm]?.subsystemName || "Operational Subsystem"}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#5C636F] leading-relaxed font-['IBM_Plex_Sans']">
+              Are you sure you want to sign out of this operational subsystem? Your session credentials will be cleared and you will need to log back in.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 font-['IBM_Plex_Mono']">
+              <button
+                type="button"
+                onClick={() => setSubsystemLogoutConfirm(null)}
+                className="px-4 py-2 border border-[#DFE1DB] hover:bg-[#F1F1ED] text-[#1A1D21] rounded-lg text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSubsystemLogout(subsystemLogoutConfirm)}
+                className="px-4 py-2 bg-red-700 hover:bg-red-800 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                <span>Confirm Sign Out</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

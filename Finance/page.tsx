@@ -67,6 +67,7 @@ import ExportButton from "./components/ExportButton";
 import UserManagement, { SystemUser } from "./components/UserManagement";
 import DashboardFinancialCharts from "./components/DashboardFinancialCharts";
 import DisbursementManagement, { DisbursementReceipt } from "./components/DisbursementManagement";
+import AiBudgetAllocationModal from "./components/AiBudgetAllocationModal";
 import { INITIAL_LEDGER_POSTS } from "./data/hospitalityData";
 import loginHeroImage from "../src/assets/images/login_hero_image_1787844999408.jpg";
 
@@ -1280,6 +1281,8 @@ export default function IntegratedFinancialSystem({
     ];
   });
   const [budgetForm, setBudgetForm] = useState({ department: "", allocated: "" });
+  const [isAiBudgetModalOpen, setIsAiBudgetModalOpen] = useState(false);
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
 
   // 6. Cash Management & Liquidity Pool
   const [cashPool, setCashPool] = useState(() => {
@@ -3191,8 +3194,8 @@ export default function IntegratedFinancialSystem({
     allocations: { department: string; allocated: number; cap: number; percentage: number }[]
   ) => {
     // Update main budgets state in Finance/page.tsx
-    setBudgets((prev) =>
-      prev.map((b) => {
+    setBudgets((prev) => {
+      const updated = prev.map((b) => {
         const match = allocations.find(
           (a) =>
             a.department.toLowerCase().includes(b.department.toLowerCase().split(" ")[0]) ||
@@ -3205,13 +3208,30 @@ export default function IntegratedFinancialSystem({
           };
         }
         return b;
-      })
-    );
+      });
+      try {
+        localStorage.setItem("horeca_budgets", JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
+    // Also synchronize department caps for DisbursementManagement & Subsystems
+    try {
+      const storedDeptBudgets = localStorage.getItem("horeca_dept_budgets");
+      if (storedDeptBudgets) {
+        const parsed = JSON.parse(storedDeptBudgets);
+        const synced = parsed.map((d: any) => {
+          const m = allocations.find((a) => a.department === d.department || d.department.toLowerCase().includes(a.department.toLowerCase().split(" ")[0]));
+          return m ? { ...d, allocated: m.allocated, budgetCap: m.cap } : d;
+        });
+        localStorage.setItem("horeca_dept_budgets", JSON.stringify(synced));
+      }
+    } catch (e) {}
 
     logAuditEvent({
       action: "AI_DEPARTMENT_BUDGET_ALLOCATION",
-      module: "Disbursement Management",
-      description: `Applied AI automated budget allocation across 5 departments. Enforced updated budget caps and allocation targets.`,
+      module: "Budget Management",
+      description: `Applied AI automated budget allocation across departments with strategic FP&A spend caps and live utilization tracking.`,
       newState: allocations
     });
 
@@ -3836,8 +3856,8 @@ export default function IntegratedFinancialSystem({
               </span>
             </div>
             <button
-              onClick={handleLogout}
-              title="Logout"
+              onClick={() => setIsLogoutConfirmOpen(true)}
+              title="Sign Out"
               className="p-1.5 bg-[#2A2E34] hover:bg-[#B5281A] text-white rounded-lg transition-colors cursor-pointer"
             >
               <LogOut className="h-4 w-4" />
@@ -4219,9 +4239,17 @@ export default function IntegratedFinancialSystem({
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-[#DFE1DB] pb-4">
                 <div>
                   <h2 className="text-2xl font-bold font-['Archivo']">Budget Management &amp; Department Allocation</h2>
-                  <p className="text-xs text-[#5C636F]">Departmental spending limits, linear regression forecasting &amp; FP&A variance tracking</p>
+                  <p className="text-xs text-[#5C636F]">Departmental spending limits, AI FP&amp;A allocation, linear regression forecasting &amp; variance tracking</p>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsAiBudgetModalOpen(true)}
+                    className="px-4 py-2 bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-800 hover:from-purple-800 hover:to-indigo-800 text-white rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] transition-all flex items-center gap-2 shadow-xs cursor-pointer"
+                  >
+                    <Sparkles className="h-4 w-4 text-amber-300 animate-pulse" />
+                    <span>AI Allocate Budget</span>
+                  </button>
                   <ExportButton
                     getExportData={getBudgetExportData}
                     buttonLabel="Export Budgets"
@@ -4236,67 +4264,54 @@ export default function IntegratedFinancialSystem({
                 isDataMasked={isDataMasked}
               />
 
-              {/* Departmental CapEx vs OpEx Allocation Cards */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Departmental Allocation Cards (Clean Full-Width Grid) */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold font-['IBM_Plex_Mono'] uppercase tracking-wider text-[#5C636F] flex items-center gap-2">
+                    <Layers className="h-3.5 w-3.5 text-[#B53A1E]" />
+                    <span>Department Budget Allocations &amp; Real-Time Spend Tracking</span>
+                  </h3>
+                  <span className="text-[11px] text-[#5C636F] font-['IBM_Plex_Mono']">
+                    Enterprise Cap Utilization
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   {budgets.map((b) => {
                     const pct = Math.round((b.spent / b.allocated) * 100);
                     return (
-                      <div key={b.id} className="bg-white border border-[#DFE1DB] p-4 rounded-xl space-y-3 shadow-xs">
+                      <div key={b.id} className="bg-white border border-[#DFE1DB] p-4 rounded-xl space-y-3 shadow-xs hover:border-[#1A1D21]/30 transition-all">
                         <div className="flex justify-between items-center">
-                          <h3 className="font-bold text-sm">{b.department}</h3>
-                          <span className="text-xs font-['IBM_Plex_Mono'] text-[#5C636F]">{b.id}</span>
+                          <h3 className="font-bold text-sm text-[#1A1D21] font-['Archivo']">{b.department}</h3>
+                          <span className="text-xs font-['IBM_Plex_Mono'] text-[#5C636F] bg-[#F1F1ED] px-2 py-0.5 rounded">{b.id}</span>
                         </div>
                         <div className="w-full bg-[#F1F1ED] h-2.5 rounded-full overflow-hidden">
                           <div
-                            className={`h-full transition-all ${
+                            className={`h-full transition-all duration-300 ${
                               pct > 90 ? "bg-[#B5281A]" : pct > 70 ? "bg-[#FF6A3D]" : "bg-[#157A4D]"
                             }`}
                             style={{ width: `${Math.min(pct, 100)}%` }}
                           />
                         </div>
                         <div className="flex justify-between text-xs font-['IBM_Plex_Mono']">
-                          <span>Spent: {maskCurrency(b.spent)}</span>
-                          <span>Allocated: {maskCurrency(b.allocated)} ({pct}%)</span>
+                          <span className="text-[#5C636F]">Spent: <strong className="text-[#1A1D21]">{maskCurrency(b.spent)}</strong></span>
+                          <span className="text-[#5C636F]">Cap: <strong className="text-[#157A4D]">{maskCurrency(b.allocated)}</strong> ({pct}%)</span>
                         </div>
                       </div>
                     );
                   })}
                 </div>
-
-                <div className="bg-white border border-[#DFE1DB] p-4 rounded-xl space-y-3 text-xs shadow-xs">
-                  <h3 className="font-bold text-sm font-['Archivo']">Allocate Department Budget</h3>
-                  <input
-                    type="text"
-                    placeholder="Department Title"
-                    value={budgetForm.department}
-                    onChange={(e) => setBudgetForm({ ...budgetForm, department: e.target.value })}
-                    className="w-full border p-2 rounded"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Total Allocated Budget (PHP)"
-                    value={budgetForm.allocated}
-                    onChange={(e) => setBudgetForm({ ...budgetForm, allocated: e.target.value })}
-                    className="w-full border p-2 rounded font-['IBM_Plex_Mono']"
-                  />
-                  <button
-                    onClick={() => {
-                      if (!budgetForm.department || !budgetForm.allocated) return;
-                      submitForApproval("ADD_BUDGET", "Budget Management", {
-                        id: `BGT-${Math.floor(10 + Math.random() * 90)}`,
-                        department: budgetForm.department,
-                        allocated: Number(budgetForm.allocated),
-                        spent: 0,
-                      });
-                      setBudgetForm({ department: "", allocated: "" });
-                    }}
-                    className="w-full bg-[#1A1D21] hover:bg-[#2A2E34] text-white p-2.5 rounded font-bold font-['IBM_Plex_Mono'] transition-colors cursor-pointer"
-                  >
-                    {currentUser.role === "superadmin" ? "Commit Allocation Directly" : "Submit Allocation Request"}
-                  </button>
-                </div>
               </div>
+
+              {/* AI Department Budget Allocation Modal */}
+              <AiBudgetAllocationModal
+                isOpen={isAiBudgetModalOpen}
+                onClose={() => setIsAiBudgetModalOpen(false)}
+                departments={budgets}
+                onApplyAllocations={handleUpdateDepartmentBudgets}
+                maskCurrency={maskCurrency}
+                isDataMasked={isDataMasked}
+              />
             </div>
           )}
 
@@ -4539,16 +4554,28 @@ export default function IntegratedFinancialSystem({
 
                                 {/* Stage Badge */}
                                 {isStage1 && (
-                                  <span className="text-[11px] font-['IBM_Plex_Mono'] font-bold bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                  <span className={`text-[11px] font-['IBM_Plex_Mono'] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 ${
+                                    currentUser.role === "superadmin"
+                                      ? "bg-amber-100 text-amber-900 border border-amber-300"
+                                      : "bg-amber-100 text-amber-900 border border-amber-300"
+                                  }`}>
                                     <Clock className="h-3 w-3" />
-                                    <span>Stage 1: Pending Admin Verification</span>
+                                    <span>
+                                      {currentUser.role === "superadmin"
+                                        ? "Stage 1: Pending Super Admin Direct Verification & Approval"
+                                        : "Stage 1: Pending Admin Verification"}
+                                    </span>
                                   </span>
                                 )}
 
                                 {isStage2 && (
                                   <span className="text-[11px] font-['IBM_Plex_Mono'] font-bold bg-indigo-100 text-indigo-900 border border-indigo-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
                                     <ArrowRight className="h-3 w-3 text-indigo-700" />
-                                    <span>Stage 2: Admin Verified &bull; Awaiting Super Admin</span>
+                                    <span>
+                                      {currentUser.role === "superadmin"
+                                        ? "Stage 2: Admin Verified &bull; Awaiting Your Final Authorization"
+                                        : "Stage 2: Admin Verified &bull; Awaiting Super Admin"}
+                                    </span>
                                   </span>
                                 )}
 
@@ -4629,8 +4656,35 @@ export default function IntegratedFinancialSystem({
 
                             {/* Action Controls Section */}
                             <div className="flex flex-col sm:flex-row lg:flex-col items-stretch sm:items-center lg:items-end gap-2 shrink-0">
-                              {/* STAGE 1: ADMIN ACTIONS */}
-                              {isStage1 && (
+                              {/* COMPLETED STATUS DISPLAY */}
+                              {(isApproved || isRejected) ? (
+                                <span className="text-[11px] font-['IBM_Plex_Mono'] text-slate-400 italic">
+                                  Workflow Closed
+                                </span>
+                              ) : currentUser.role === "superadmin" ? (
+                                /* SUPER ADMIN ACTIONS: Directly Verify & Approve (Commit to FMS) or Reject. Never sent to self. */
+                                <div className="flex flex-col gap-2 w-full sm:w-auto">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleApproveRequest(req)}
+                                    className="bg-[#157A4D] hover:bg-[#12633e] text-white px-4 py-2.5 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center justify-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
+                                    title="Super Admin Direct Verification & Immediate FMS Commit"
+                                  >
+                                    <Check className="h-3.5 w-3.5" />
+                                    <span>Verify &amp; Approve (Commit to FMS)</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRejectRequest(req.id, "Rejected by Super Administrator.")}
+                                    className="bg-white border border-[#DFE1DB] hover:bg-rose-50 hover:text-rose-700 text-[#5C636F] px-3.5 py-2 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                                    title="Reject request submission"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                    <span>Reject Request</span>
+                                  </button>
+                                </div>
+                              ) : isStage1 ? (
+                                /* STANDARD ADMIN ACTIONS (STAGE 1 ONLY): Verify & Forward to Super Admin */
                                 <>
                                   <button
                                     type="button"
@@ -4657,44 +4711,12 @@ export default function IntegratedFinancialSystem({
                                     <span>Reject Request</span>
                                   </button>
                                 </>
-                              )}
-
-                              {/* STAGE 2: SUPER ADMIN ACTIONS */}
-                              {isStage2 && (
-                                <>
-                                  {currentUser.role === "superadmin" ? (
-                                    <div className="flex flex-col gap-2 w-full sm:w-auto">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleApproveRequest(req)}
-                                        className="bg-[#157A4D] hover:bg-[#12633e] text-white px-4 py-2.5 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center justify-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
-                                      >
-                                        <Check className="h-3.5 w-3.5" />
-                                        <span>Authorize &amp; Commit to FMS</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleRejectRequest(req.id, "Rejected by Super Administrator.")}
-                                        className="bg-[#B5281A] hover:bg-[#932014] text-white px-3 py-2 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center justify-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
-                                      >
-                                        <X className="h-3.5 w-3.5" />
-                                        <span>Reject</span>
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="bg-indigo-50 border border-indigo-200 text-indigo-900 px-3 py-2 rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold text-center">
-                                      <span>Forwarded to Super Admin</span>
-                                      <span className="block text-[10px] text-indigo-600 font-normal">Awaiting Executive Sign-Off</span>
-                                    </div>
-                                  )}
-                                </>
-                              )}
-
-                              {/* COMPLETED STATUS DISPLAY */}
-                              {(isApproved || isRejected) && (
-                                <span className="text-[11px] font-['IBM_Plex_Mono'] text-slate-400 italic">
-                                  Workflow Closed
-                                </span>
+                              ) : (
+                                /* STANDARD ADMIN VIEW (STAGE 2): Waiting for Super Admin sign-off */
+                                <div className="bg-indigo-50 border border-indigo-200 text-indigo-900 px-3 py-2 rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold text-center">
+                                  <span>Forwarded to Super Admin</span>
+                                  <span className="block text-[10px] text-indigo-600 font-normal">Awaiting Executive Sign-Off</span>
+                                </div>
                               )}
                             </div>
                           </div>
@@ -4864,6 +4886,64 @@ export default function IntegratedFinancialSystem({
                 className="px-3 py-1.5 bg-[#1A1D21] text-white rounded font-bold hover:bg-[#2A2E34] cursor-pointer"
               >
                 Unmask Data
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          LOGOUT CONFIRMATION MODAL
+         ========================================================================= */}
+      {isLogoutConfirmOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-[#DFE1DB] shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-red-100 text-[#B5281A] rounded-xl">
+                <LogOut className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base font-['Archivo'] text-[#1A1D21]">
+                  Confirm Sign Out
+                </h3>
+                <p className="text-xs text-[#5C636F] font-['IBM_Plex_Mono']">
+                  End current administrative session
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#5C636F] leading-relaxed font-['IBM_Plex_Sans']">
+              Are you sure you want to log out of the Financial Management System,{" "}
+              <strong className="text-[#1A1D21] font-semibold">{currentUser?.name}</strong> (
+              {currentUser?.email})?
+            </p>
+
+            <div className="bg-[#F8F9F6] p-3 rounded-lg border border-[#DFE1DB] text-[11px] text-[#5C636F] font-['IBM_Plex_Mono'] space-y-1">
+              <div className="flex items-center gap-1.5 text-amber-700 font-bold">
+                <AlertCircle className="h-3.5 w-3.5" />
+                <span>Session Security Notice</span>
+              </div>
+              <p>Active session credentials will be invalidated. Re-authentication with your Google Gmail OTP will be required upon next sign-in.</p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 font-['IBM_Plex_Mono']">
+              <button
+                type="button"
+                onClick={() => setIsLogoutConfirmOpen(false)}
+                className="px-4 py-2 border border-[#DFE1DB] hover:bg-[#F1F1ED] text-[#1A1D21] rounded-lg text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLogoutConfirmOpen(false);
+                  handleLogout();
+                }}
+                className="px-4 py-2 bg-[#B5281A] hover:bg-[#922014] text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                <span>Confirm Sign Out</span>
               </button>
             </div>
           </div>
