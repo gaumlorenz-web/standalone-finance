@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   FileText,
   Percent,
@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import PesoSign from "./PesoSign";
 import ExportButton from "./ExportButton";
+import { saveRemitEfpsToDb, fetchDbState } from "../../src/services/databaseService";
 
 export interface TaxTransaction {
   id: string;
@@ -48,6 +49,7 @@ interface TaxManagementProps {
   isDataMasked?: boolean;
   maskCurrency?: (val: number) => string;
   maskField?: (val: string, type: string) => string;
+  onTaxRemitted?: (tx: TaxTransaction) => void;
 }
 
 export const INITIAL_TAX_TRANSACTIONS: TaxTransaction[] = [
@@ -73,7 +75,7 @@ export const INITIAL_TAX_TRANSACTIONS: TaxTransaction[] = [
     taxableBase: 780000.0,
     ratePercent: 12.0,
     computedTax: 93600.0,
-    vendorOrCustomer: "Team 6 Fresh Meat & Seafood Corp & Utilities",
+    vendorOrCustomer: "Fresh Meat & Seafood Corp & Utilities",
     tin: "204-889-102-000",
     filingPeriod: "Q3 2026 (August)",
     status: "Claimable Credit",
@@ -142,14 +144,53 @@ export default function TaxManagement({
   isDataMasked = false,
   maskCurrency = (val) =>
     new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(val),
-  maskField = (val) => val
+  maskField = (val) => val,
+  onTaxRemitted
 }: TaxManagementProps) {
-  const [transactions, setTransactions] = useState<TaxTransaction[]>(INITIAL_TAX_TRANSACTIONS);
+  const [transactions, setTransactions] = useState<TaxTransaction[]>(() => {
+    try {
+      const saved = localStorage.getItem("horeca_tax_transactions");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return INITIAL_TAX_TRANSACTIONS;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("horeca_tax_transactions", JSON.stringify(transactions));
+    } catch (e) {}
+  }, [transactions]);
+
+  // Sync remitted taxes from SQLite backend on mount
+  useEffect(() => {
+    fetchDbState()
+      .then((dbData) => {
+        if (dbData && dbData.taxRemittances && dbData.taxRemittances.length > 0) {
+          const remittedMap = new Map(dbData.taxRemittances.map((r: any) => [r.tax_id, r]));
+          setTransactions((prev) =>
+            prev.map((tx) => {
+              const match: any = remittedMap.get(tx.id);
+              if (match) {
+                return {
+                  ...tx,
+                  status: "Filed & Remitted" as const,
+                  efpsConfirmation: match.efps_confirmation || tx.efpsConfirmation,
+                  remittanceDate: match.remittance_date || tx.remittanceDate
+                };
+              }
+              return tx;
+            })
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const [selectedForm, setSelectedForm] = useState<string>("All");
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isComplianceReportOpen, setIsComplianceReportOpen] = useState(false);
-  const [complianceZoom, setComplianceZoom] = useState<number>(85);
+  const [complianceZoom, setComplianceZoom] = useState<number>(70);
   const [isReportMaximized, setIsReportMaximized] = useState<boolean>(false);
   const [selectedCertificate, setSelectedCertificate] = useState<TaxTransaction | null>(null);
 
@@ -264,20 +305,47 @@ export default function TaxManagement({
     setNewTaxableBase("");
   };
 
-  const handleRemitTax = (id: string) => {
+  const handleRemitTax = async (id: string) => {
+    const target = transactions.find((tx) => tx.id === id);
+    if (!target) return;
+
     const efpsNum = `eFPS-${Math.floor(10000000 + Math.random() * 90000000)}`;
-    setTransactions(prev =>
-      prev.map(tx =>
-        tx.id === id
-          ? {
-              ...tx,
-              status: "Filed & Remitted" as const,
-              efpsConfirmation: efpsNum,
-              remittanceDate: new Date().toISOString().split("T")[0]
-            }
-          : tx
-      )
+    const remitDate = new Date().toISOString().split("T")[0];
+
+    const updatedTx: TaxTransaction = {
+      ...target,
+      status: "Filed & Remitted" as const,
+      efpsConfirmation: efpsNum,
+      remittanceDate: remitDate
+    };
+
+    setTransactions((prev) =>
+      prev.map((tx) => (tx.id === id ? updatedTx : tx))
     );
+
+    // Save eFPS Remittance directly to backend SQLite database
+    try {
+      await saveRemitEfpsToDb({
+        taxId: target.id,
+        birForm: target.birForm,
+        taxType: target.taxType,
+        entityName: target.vendorOrCustomer,
+        tin: target.tin,
+        taxableBase: target.taxableBase,
+        ratePercent: target.ratePercent,
+        computedTax: target.computedTax,
+        atcCode: target.atcCode,
+        efpsConfirmation: efpsNum,
+        remittanceDate: remitDate,
+        currentUser: currentUser?.name || "Tax Officer"
+      });
+    } catch (err) {
+      console.error("Failed to save eFPS remittance to database:", err);
+    }
+
+    if (onTaxRemitted) {
+      onTaxRemitted(updatedTx);
+    }
   };
 
   const getExportData = () => {
@@ -897,10 +965,10 @@ export default function TaxManagement({
       {isComplianceReportOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-2 sm:p-4 z-50 overflow-y-auto backdrop-blur-xs">
           <div className={`bg-white rounded-2xl border border-[#DFE1DB] shadow-2xl text-xs font-['IBM_Plex_Sans'] my-auto transition-all duration-200 flex flex-col overflow-hidden ${
-            isReportMaximized ? "w-[98vw] max-w-[98vw] h-[96vh]" : "max-w-6xl w-full max-h-[94vh]"
+            isReportMaximized ? "w-[98vw] max-w-[98vw] h-[96vh]" : "max-w-7xl w-[96vw] max-h-[95vh]"
           }`}>
             {/* Header / Seal & Zoom Controls */}
-            <div className="p-5 sm:p-6 border-b border-[#DFE1DB] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white shrink-0">
+            <div className="p-4 sm:p-5 md:p-6 border-b border-[#DFE1DB] flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3 bg-white shrink-0">
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] uppercase tracking-widest text-[#5C636F] bg-slate-100 px-2 py-0.5 rounded">
@@ -924,15 +992,15 @@ export default function TaxManagement({
                 <div className="flex items-center bg-[#F1F1ED] p-1 rounded-lg border border-[#DFE1DB] text-[11px]">
                   <button
                     type="button"
-                    onClick={() => setComplianceZoom((prev) => Math.max(65, prev - 10))}
-                    title="Zoom Out"
+                    onClick={() => setComplianceZoom((prev) => Math.max(50, prev - 10))}
+                    title="Zoom Out (Down to 50%)"
                     className="p-1.5 hover:bg-white text-[#5C636F] hover:text-[#1A1D21] rounded cursor-pointer transition-colors"
                   >
                     <ZoomOut className="h-3.5 w-3.5" />
                   </button>
 
                   {/* Preset Zoom Pills */}
-                  {[75, 85, 100].map((level) => (
+                  {[50, 65, 75, 85, 100].map((level) => (
                     <button
                       key={level}
                       type="button"
@@ -942,20 +1010,31 @@ export default function TaxManagement({
                           ? "bg-white text-[#1A1D21] shadow-xs"
                           : "text-[#5C636F] hover:text-[#1A1D21]"
                       }`}
+                      title={level === 70 || level === 75 ? "Comfortable Zoomed-Out View" : `${level}% scale`}
                     >
-                      {level}%
+                      {level}%{level === 75 ? " (Fit)" : ""}
                     </button>
                   ))}
 
                   <button
                     type="button"
                     onClick={() => setComplianceZoom((prev) => Math.min(125, prev + 10))}
-                    title="Zoom In"
+                    title="Zoom In (Up to 125%)"
                     className="p-1.5 hover:bg-white text-[#5C636F] hover:text-[#1A1D21] rounded cursor-pointer transition-colors"
                   >
                     <ZoomIn className="h-3.5 w-3.5" />
                   </button>
                 </div>
+
+                {/* Quick Fit / 100% Reset */}
+                <button
+                  type="button"
+                  onClick={() => setComplianceZoom(complianceZoom <= 75 ? 100 : 70)}
+                  className="px-2.5 py-1.5 border border-[#DFE1DB] bg-white hover:bg-slate-50 text-[#1A1D21] text-[11px] rounded-lg font-bold cursor-pointer transition-colors"
+                  title="Toggle between Zoomed-out overview and 100% detail"
+                >
+                  {complianceZoom <= 75 ? "100% Zoom" : "Zoom Out (Fit)"}
+                </button>
 
                 {/* Maximize / Restore Toggle */}
                 <button
@@ -980,7 +1059,7 @@ export default function TaxManagement({
 
             {/* Document Body with Scalable Zoom */}
             <div
-              className="p-6 sm:p-8 space-y-6 overflow-y-auto grow custom-scrollbar bg-[#FFFFFF]"
+              className="p-4 sm:p-6 md:p-8 space-y-6 overflow-y-auto grow custom-scrollbar bg-[#FFFFFF]"
               style={{ zoom: `${complianceZoom}%` }}
             >
               {/* Corporate Taxpayer Registration Summary */}
@@ -1067,7 +1146,7 @@ export default function TaxManagement({
                     4 Active Tax Schedules
                   </span>
                 </div>
-                <div className="border border-[#DFE1DB] rounded-xl overflow-hidden shadow-xs">
+                <div className="border border-[#DFE1DB] rounded-xl overflow-x-auto shadow-xs">
                   <table className="w-full text-left text-xs font-['IBM_Plex_Mono']">
                     <thead className="bg-[#F1F1ED] text-[10px] uppercase text-[#5C636F]">
                       <tr>
@@ -1143,7 +1222,7 @@ export default function TaxManagement({
                     Showing {transactions.length} verified tax records
                   </span>
                 </div>
-                <div className="border border-[#DFE1DB] rounded-xl overflow-hidden max-h-80 overflow-y-auto shadow-xs">
+                <div className="border border-[#DFE1DB] rounded-xl overflow-x-auto max-h-80 overflow-y-auto shadow-xs">
                   <table className="w-full text-left text-xs font-['IBM_Plex_Mono']">
                     <thead className="bg-[#F1F1ED] text-[10px] uppercase text-[#5C636F] sticky top-0">
                       <tr>

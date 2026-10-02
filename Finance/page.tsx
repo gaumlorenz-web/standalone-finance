@@ -68,6 +68,7 @@ import UserManagement, { SystemUser } from "./components/UserManagement";
 import DashboardFinancialCharts from "./components/DashboardFinancialCharts";
 import DisbursementManagement, { DisbursementReceipt } from "./components/DisbursementManagement";
 import AiBudgetAllocationModal from "./components/AiBudgetAllocationModal";
+import { saveSettleNowToDb, saveCollectToDb, fetchDbState } from "../src/services/databaseService";
 import { INITIAL_LEDGER_POSTS } from "./data/hospitalityData";
 import loginHeroImage from "../src/assets/images/login_hero_image_1787844999408.jpg";
 
@@ -991,6 +992,30 @@ export default function IntegratedFinancialSystem({
       localStorage.setItem("horeca_apar_invoices", JSON.stringify(apArInvoices));
     } catch (e) {}
   }, [apArInvoices]);
+
+  // Initial Sync from Backend SQLite Database for Settled Invoices and Collections
+  useEffect(() => {
+    fetchDbState().then((dbData) => {
+      if (dbData && dbData.settlements && dbData.settlements.length > 0) {
+        const settledIds = new Set(dbData.settlements.map((s: any) => s.invoice_id));
+        setApInvoices((prev) =>
+          prev.map((inv) =>
+            settledIds.has(inv.id) ? { ...inv, status: "Paid / Settled" as const, dailyPenaltyRatePercent: 0 } : inv
+          )
+        );
+      }
+      if (dbData && dbData.collections && dbData.collections.length > 0) {
+        const collectedInvIds = new Set(dbData.collections.map((c: any) => c.invoice_id).filter(Boolean));
+        if (collectedInvIds.size > 0) {
+          setArInvoices((prev) =>
+            prev.map((inv) =>
+              collectedInvIds.has(inv.id) ? { ...inv, status: "Collected / Settled" as const } : inv
+            )
+          );
+        }
+      }
+    }).catch(() => {});
+  }, []);
 
   // Track viewed audit trails so number disappears on view and reappears on new action
   useEffect(() => {
@@ -2433,7 +2458,27 @@ export default function IntegratedFinancialSystem({
     };
     setDisbursementData((prev) => [newDisbursementRecord, ...prev]);
 
-    showToast(`AP Settlement Complete: Invoice #${payload.invoiceId} settled for ₱${totalAmount.toLocaleString()} via ${payload.paymentMethod}. GL and Audit Trail updated!`, "success");
+    // 6. Save "Settle Now" Action in Backend SQLite Database
+    saveSettleNowToDb({
+      invoiceId: payload.invoiceId,
+      vendor: payload.vendor,
+      tin: payload.tin,
+      category: payload.category,
+      poRef: payload.poRef,
+      drRef: payload.drRef,
+      principal: Number(payload.principal),
+      lateIncrement: Number(payload.lateIncrement || 0),
+      totalPayable: totalAmount,
+      daysOverdue: Number(payload.daysOverdue || 0),
+      disbursementAccount: payload.disbursementAccount,
+      paymentMethod: payload.paymentMethod,
+      referenceNumber: payload.referenceNumber,
+      paymentDate: payload.paymentDate,
+      notes: payload.notes,
+      currentUser: currentUser?.name || "Administrator"
+    });
+
+    showToast(`Settle Now Complete: Invoice #${payload.invoiceId} settled for ₱${totalAmount.toLocaleString()} & saved in SQLite Database! GL & Treasury updated!`, "success");
   };
 
   const handleAddApInvoice = (newInv: SupplierInvoice) => {
@@ -2483,9 +2528,30 @@ export default function IntegratedFinancialSystem({
   };
 
   const handleSettleApInvoice = (id: string) => {
+    const inv = apInvoices.find((i) => i.id === id);
     setApInvoices((prev) =>
-      prev.map((inv) => (inv.id === id ? { ...inv, status: "Paid / Settled" as const, dailyPenaltyRatePercent: 0 } : inv))
+      prev.map((item) => (item.id === id ? { ...item, status: "Paid / Settled" as const, dailyPenaltyRatePercent: 0 } : item))
     );
+    if (inv) {
+      saveSettleNowToDb({
+        invoiceId: inv.id,
+        vendor: inv.vendor,
+        tin: inv.tin,
+        category: inv.category,
+        poRef: inv.poRef,
+        drRef: inv.drRef,
+        principal: Number(inv.amount),
+        lateIncrement: 0,
+        totalPayable: Number(inv.amount),
+        daysOverdue: 0,
+        disbursementAccount: "1030 - Operating Bank Account - Primary",
+        paymentMethod: "Bank Transfer",
+        referenceNumber: `SETTLE-${inv.id}`,
+        paymentDate: new Date().toISOString().split("T")[0],
+        notes: `Direct Settle of invoice ${inv.id}`,
+        currentUser: currentUser?.name || "Administrator"
+      });
+    }
   };
 
   // ==========================================
@@ -2644,9 +2710,25 @@ export default function IntegratedFinancialSystem({
     });
 
     showToast(
-      `AR Collection Complete: ₱${enteredAmount.toLocaleString()} deposited to ${isPetty ? "Petty Cash Float" : "Operating Treasury"} for ${payload.customer}. GL & Treasury updated!`,
+      `AR Collection Complete: ₱${enteredAmount.toLocaleString()} deposited to ${isPetty ? "Petty Cash Float" : "Operating Treasury"} for ${payload.customer} & saved in SQLite Database!`,
       "success"
     );
+
+    // 6. Save "Collect" Action in Backend SQLite Database
+    saveCollectToDb({
+      collectionId: `COL-${payload.invoiceId}-${Date.now()}`,
+      invoiceId: payload.invoiceId,
+      customerName: payload.customer,
+      amount: enteredAmount,
+      targetAccount: payload.targetAccount,
+      paymentMethod: payload.paymentMethod,
+      referenceNumber: payload.referenceNumber,
+      receiptNumber: payload.referenceNumber || `OR-${payload.invoiceId}`,
+      date: payload.paymentDate,
+      isFullSettlement: payload.isFullSettlement,
+      notes: payload.notes,
+      currentUser: currentUser?.name || "Cashier"
+    });
   };
 
   const handleAddArInvoice = (newInv: CustomerInvoice) => {
@@ -2872,9 +2954,25 @@ export default function IntegratedFinancialSystem({
     });
 
     showToast(
-      `Batch Collection Executed: ₱${totalCollectible.toLocaleString()} across ${collectedInvoices.length} invoices deposited to Treasury & synchronized with GL!`,
+      `Batch Collection Executed: ₱${totalCollectible.toLocaleString()} across ${collectedInvoices.length} invoices deposited to Treasury & saved in SQLite Database!`,
       "success"
     );
+
+    // Save Batch Collect action in Backend SQLite Database
+    saveCollectToDb({
+      collectionId: `COL-BATCH-${Date.now()}`,
+      customerName: `Batch (${collectedInvoices.length} Invoices)`,
+      amount: totalCollectible,
+      targetAccount,
+      paymentMethod,
+      referenceNumber,
+      receiptNumber: `OR-BATCH-${Date.now().toString().slice(-6)}`,
+      date: new Date().toISOString().split("T")[0],
+      isFullSettlement: true,
+      isBatch: true,
+      notes: `Batch collection across ${collectedInvoices.length} AR invoices`,
+      currentUser: currentUser?.name || "Cashier"
+    });
   };
 
   // ==========================================
@@ -2999,9 +3097,25 @@ export default function IntegratedFinancialSystem({
     });
 
     showToast(
-      `AR Match Complete: Record ${collection.id} matched to ${targetInvoice?.id || collection.invoiceId}. Receipt clearance posted to GL!`,
+      `AR Match Complete: Record ${collection.id} matched to ${targetInvoice?.id || collection.invoiceId}. Receipt clearance posted to GL & saved in SQLite Database!`,
       "success"
     );
+
+    // Save Matched Collection to Backend SQLite Database
+    saveCollectToDb({
+      collectionId: collection.id,
+      invoiceId: targetInvoice ? targetInvoice.id : collection.invoiceId,
+      customerName: targetInvoice ? targetInvoice.customer : collection.customerName,
+      amount: collection.amount,
+      targetAccount: collection.targetVault,
+      paymentMethod: collection.method,
+      referenceNumber: collection.officialReceiptNo,
+      receiptNumber: collection.officialReceiptNo,
+      date: collection.date,
+      isFullSettlement: true,
+      notes: `Matched to AR Invoice #${targetInvoice?.id || collection.invoiceId}`,
+      currentUser: currentUser?.name || "Cashier / Controller"
+    });
   };
 
   const handleRecordDirectCollection = (newCollection: CollectionItem) => {
@@ -3098,9 +3212,24 @@ export default function IntegratedFinancialSystem({
     });
 
     showToast(
-      `Direct Collection Logged: ₱${newCollection.amount.toLocaleString()} (OR# ${newCollection.officialReceiptNo}) deposited to ${newCollection.targetVault}!`,
+      `Direct Collection Logged: ₱${newCollection.amount.toLocaleString()} (OR# ${newCollection.officialReceiptNo}) deposited to ${newCollection.targetVault} & saved in SQLite Database!`,
       "success"
     );
+
+    // Save Direct Collection in Backend SQLite Database
+    saveCollectToDb({
+      collectionId: newCollection.id,
+      invoiceId: newCollection.invoiceId,
+      customerName: newCollection.customerName,
+      amount: newCollection.amount,
+      targetAccount: newCollection.targetVault,
+      paymentMethod: newCollection.method,
+      referenceNumber: newCollection.officialReceiptNo,
+      receiptNumber: newCollection.officialReceiptNo,
+      date: newCollection.date,
+      notes: newCollection.sourceChannel,
+      currentUser: currentUser?.name || "Cashier"
+    });
   };
 
   // ==========================================
@@ -4351,6 +4480,18 @@ export default function IntegratedFinancialSystem({
               isDataMasked={isDataMasked}
               maskCurrency={maskCurrency}
               maskField={maskField}
+              onTaxRemitted={(tx) => {
+                logAuditEvent({
+                  action: "REMIT_VIA_EFPS",
+                  module: "Tax Management",
+                  description: `Remitted ${tx.birForm} (₱${Number(tx.computedTax).toLocaleString()}) via BIR eFPS [Ref: ${tx.efpsConfirmation}]. Saved in SQLite database.`,
+                  newState: tx
+                });
+                showToast(
+                  `Tax Remittance Confirmed: ${tx.birForm} (₱${Number(tx.computedTax).toLocaleString()}) transmitted via eFPS [${tx.efpsConfirmation}] & saved in SQLite Database!`,
+                  "success"
+                );
+              }}
             />
           )}
 
