@@ -3807,12 +3807,7 @@ export default function IntegratedFinancialSystem({
                   </button>
                 </form>
 
-                <div className="border-t border-[#DFE1DB] pt-3 text-center">
-                  <div className="flex items-center justify-center gap-1.5 text-[11px] text-[#5C636F] font-['IBM_Plex_Mono']">
-                    <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                    <span>Philippine Hospitality &amp; FleetOps Compliance</span>
-                  </div>
-                </div>
+                
               </>
             ) : (
               /* STEP 2: GOOGLE OTP VERIFICATION */
