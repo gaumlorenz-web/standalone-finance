@@ -1,7 +1,15 @@
+import {
+  verifyPassword,
+  hashPassword,
+  isPasswordHashed,
+  INITIAL_HASHED_PASSWORDS
+} from "./passwordAuth";
+
 /**
  * Enterprise Multi-User Configuration & Access Control
  * Allows multiple users across departments, subsystems, and administrative tiers
  * to log in, manage credentials, and switch between operations seamlessly.
+ * Passwords securely hashed with salted bcrypt ($2b$10$...).
  */
 
 export interface SystemUserAccount {
@@ -9,7 +17,7 @@ export interface SystemUserAccount {
   name: string;
   email: string;
   googleAccount: string;
-  password: string; // Authorized authentication password
+  password: string; // Authorized authentication password (bcrypt hash)
   role: "superadmin" | "admin" | "manager" | "auditor" | "operator";
   status: "active" | "suspended";
   department: string;
@@ -28,7 +36,7 @@ export const ENTERPRISE_MULTI_USERS: SystemUserAccount[] = [
     name: "Lorenz Gaum",
     email: "Lorenz@horeca.com",
     googleAccount: "gaumlorenz@gmail.com",
-    password: "230117482",
+    password: INITIAL_HASHED_PASSWORDS.lorenz,
     role: "superadmin",
     status: "active",
     department: "Executive Treasury & Governance",
@@ -45,7 +53,7 @@ export const ENTERPRISE_MULTI_USERS: SystemUserAccount[] = [
     name: "Renz (Standard Admin)",
     email: "Renz@horeca.com",
     googleAccount: "grave3116@gmail.com",
-    password: "#Ga2004",
+    password: INITIAL_HASHED_PASSWORDS.renz,
     role: "admin",
     status: "active",
     department: "Finance & Accounts Payable/Receivable",
@@ -61,7 +69,7 @@ export const ENTERPRISE_MULTI_USERS: SystemUserAccount[] = [
     name: "Janine Hular",
     email: "Janine@horeca.net",
     googleAccount: "janine.hular@horeca.net",
-    password: "#Hular2026",
+    password: INITIAL_HASHED_PASSWORDS.janine,
     role: "manager",
     status: "active",
     department: "Human Resources & Statutory Payroll",
@@ -77,7 +85,7 @@ export const ENTERPRISE_MULTI_USERS: SystemUserAccount[] = [
     name: "Sheila Suede",
     email: "Sheila@horeca.net",
     googleAccount: "sheila.suede@horeca.net",
-    password: "#Suede2026",
+    password: INITIAL_HASHED_PASSWORDS.sheila,
     role: "manager",
     status: "active",
     department: "Hotel Front Office & Room Operations",
@@ -93,7 +101,7 @@ export const ENTERPRISE_MULTI_USERS: SystemUserAccount[] = [
     name: "Charles Tiu",
     email: "Charles@horeca.net",
     googleAccount: "charles.tiu@horeca.net",
-    password: "#Tiu2026",
+    password: INITIAL_HASHED_PASSWORDS.charles,
     role: "manager",
     status: "active",
     department: "Food & Beverage Operations",
@@ -109,7 +117,7 @@ export const ENTERPRISE_MULTI_USERS: SystemUserAccount[] = [
     name: "Jordan Tiu",
     email: "Jordan@horeca.net",
     googleAccount: "jordan.tiu@horeca.net",
-    password: "#Tiu2027",
+    password: INITIAL_HASHED_PASSWORDS.jordan,
     role: "manager",
     status: "active",
     department: "Supply Chain & Purveyor Procurement",
@@ -125,7 +133,7 @@ export const ENTERPRISE_MULTI_USERS: SystemUserAccount[] = [
     name: "Lourence Piedad",
     email: "Lourence@horeca.net",
     googleAccount: "lourence.piedad@horeca.net",
-    password: "#Piedad2026",
+    password: INITIAL_HASHED_PASSWORDS.lourence,
     role: "manager",
     status: "active",
     department: "Fleet Logistics & Transport Operations",
@@ -141,7 +149,7 @@ export const ENTERPRISE_MULTI_USERS: SystemUserAccount[] = [
     name: "Aira Alcantara",
     email: "Aira@horeca.net",
     googleAccount: "aira.alcantara@horeca.net",
-    password: "#Audit2026",
+    password: INITIAL_HASHED_PASSWORDS.aira,
     role: "auditor",
     status: "active",
     department: "Hotel Internal Audit & Reconciliation",
@@ -157,7 +165,7 @@ export const ENTERPRISE_MULTI_USERS: SystemUserAccount[] = [
     name: "Rolando Perez",
     email: "ChefRolando@horeca.net",
     googleAccount: "rolando.perez@horeca.net",
-    password: "#Chef2026",
+    password: INITIAL_HASHED_PASSWORDS.chef,
     role: "operator",
     status: "active",
     department: "Culinary & Kitchen Management",
@@ -173,7 +181,7 @@ export const ENTERPRISE_MULTI_USERS: SystemUserAccount[] = [
     name: "Danilo Ramos",
     email: "Danilo@horeca.net",
     googleAccount: "danilo.ramos@horeca.net",
-    password: "#Driver2026",
+    password: INITIAL_HASHED_PASSWORDS.driver,
     role: "operator",
     status: "active",
     department: "Transport Dispatch & Shuttles",
@@ -194,7 +202,15 @@ export const multiUserManager = {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          // Upgrade any unhashed passwords automatically
+          const upgraded = parsed.map((u: any) => {
+            const pass = u.password || "";
+            return {
+              ...u,
+              password: isPasswordHashed(pass) ? pass : hashPassword(pass)
+            };
+          });
+          return upgraded;
         }
       }
     } catch (e) {
@@ -215,7 +231,7 @@ export const multiUserManager = {
     }
   },
 
-  // Authenticate user against registered accounts
+  // Authenticate user against registered accounts using secure bcrypt comparison
   authenticate(email: string, passwordInput: string): { user: SystemUserAccount | null; error?: string } {
     const users = this.getAllUsers();
     const trimmedEmail = email.trim().toLowerCase();
@@ -232,7 +248,7 @@ export const multiUserManager = {
       return { user: null, error: "This user account is suspended. Contact the Super Administrator for reactivation." };
     }
 
-    if (found.password !== passwordInput) {
+    if (!verifyPassword(passwordInput, found.password)) {
       return { user: null, error: "Incorrect password. Passwords are case-sensitive." };
     }
 
@@ -254,6 +270,7 @@ export const multiUserManager = {
     const created: SystemUserAccount = {
       ...newUser,
       id,
+      password: isPasswordHashed(newUser.password) ? newUser.password : hashPassword(newUser.password),
       createdAt: new Date().toISOString().split("T")[0]
     };
 
@@ -265,7 +282,13 @@ export const multiUserManager = {
   // Update existing user account
   updateUser(id: string, updates: Partial<SystemUserAccount>): void {
     const users = this.getAllUsers();
-    const next = users.map((u) => (u.id === id ? { ...u, ...updates } : u));
+    const safeUpdates: Partial<SystemUserAccount> = { ...updates };
+    if (safeUpdates.password) {
+      safeUpdates.password = isPasswordHashed(safeUpdates.password)
+        ? safeUpdates.password
+        : hashPassword(safeUpdates.password);
+    }
+    const next = users.map((u) => (u.id === id ? { ...u, ...safeUpdates } : u));
     this.saveUsers(next);
   },
 
@@ -282,3 +305,4 @@ export const multiUserManager = {
     return users.filter((u) => u.subsystemsAllowed?.includes(subsystemId) || u.role === "superadmin");
   }
 };
+

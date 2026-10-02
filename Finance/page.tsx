@@ -71,6 +71,12 @@ import AiBudgetAllocationModal from "./components/AiBudgetAllocationModal";
 import { saveSettleNowToDb, saveCollectToDb, fetchDbState } from "../src/services/databaseService";
 import { INITIAL_LEDGER_POSTS } from "./data/hospitalityData";
 import loginHeroImage from "../src/assets/images/login_hero_image_1787844999408.jpg";
+import {
+  verifyPassword,
+  hashPassword,
+  isPasswordHashed,
+  INITIAL_HASHED_PASSWORDS
+} from "../src/services/passwordAuth";
 
 export interface IntegratedFinancialSystemProps {
   onSwitchSubsystem?: (subsystem: string) => void;
@@ -83,6 +89,7 @@ export default function IntegratedFinancialSystem({
 }: IntegratedFinancialSystemProps = {}) {
   // ==========================================
   // AUTHORIZED ACCOUNTS & USER CREDENTIALS (ENTERPRISE MULTI-USER CONFIGURATION)
+  // Securely stored as cryptographically salted bcrypt hashes ($2b$10$...)
   // ==========================================
   const INITIAL_ACCOUNTS: SystemUser[] = [
     {
@@ -90,7 +97,7 @@ export default function IntegratedFinancialSystem({
       name: "Lorenz Gaum",
       email: "Lorenz@horeca.com",
       googleAccount: "gaumlorenz@gmail.com",
-      password: "230117482",
+      password: INITIAL_HASHED_PASSWORDS.lorenz,
       role: "superadmin",
       status: "active",
       createdAt: "2026-08-19",
@@ -102,7 +109,7 @@ export default function IntegratedFinancialSystem({
       name: "Renz (Standard Admin)",
       email: "Renz@horeca.com",
       googleAccount: "grave3116@gmail.com",
-      password: "#Ga2004",
+      password: INITIAL_HASHED_PASSWORDS.renz,
       role: "admin",
       status: "active",
       createdAt: "2026-08-19",
@@ -113,7 +120,7 @@ export default function IntegratedFinancialSystem({
       name: "Janine Hular (HR Director)",
       email: "Janine@horeca.net",
       googleAccount: "janine.hular@horeca.net",
-      password: "#Hular2026",
+      password: INITIAL_HASHED_PASSWORDS.janine,
       role: "admin",
       status: "active",
       createdAt: "2026-08-20",
@@ -124,7 +131,7 @@ export default function IntegratedFinancialSystem({
       name: "Sheila Suede (Hotel Operations)",
       email: "Sheila@horeca.net",
       googleAccount: "sheila.suede@horeca.net",
-      password: "#Suede2026",
+      password: INITIAL_HASHED_PASSWORDS.sheila,
       role: "admin",
       status: "active",
       createdAt: "2026-08-20",
@@ -135,7 +142,7 @@ export default function IntegratedFinancialSystem({
       name: "Charles Tiu (F&B Resto GM)",
       email: "Charles@horeca.net",
       googleAccount: "charles.tiu@horeca.net",
-      password: "#Tiu2026",
+      password: INITIAL_HASHED_PASSWORDS.charles,
       role: "admin",
       status: "active",
       createdAt: "2026-08-21",
@@ -146,7 +153,7 @@ export default function IntegratedFinancialSystem({
       name: "Jordan Tiu (Supply Chain Controller)",
       email: "Jordan@horeca.net",
       googleAccount: "jordan.tiu@horeca.net",
-      password: "#Tiu2027",
+      password: INITIAL_HASHED_PASSWORDS.jordan,
       role: "admin",
       status: "active",
       createdAt: "2026-08-21",
@@ -157,7 +164,7 @@ export default function IntegratedFinancialSystem({
       name: "Lourence Piedad (FleetOps Logistics)",
       email: "Lourence@horeca.net",
       googleAccount: "lourence.piedad@horeca.net",
-      password: "#Piedad2026",
+      password: INITIAL_HASHED_PASSWORDS.lourence,
       role: "admin",
       status: "active",
       createdAt: "2026-08-22",
@@ -168,7 +175,7 @@ export default function IntegratedFinancialSystem({
       name: "Aira Alcantara (Senior Night Auditor)",
       email: "Aira@horeca.net",
       googleAccount: "aira.alcantara@horeca.net",
-      password: "#Audit2026",
+      password: INITIAL_HASHED_PASSWORDS.aira,
       role: "admin",
       status: "active",
       createdAt: "2026-08-23",
@@ -182,17 +189,29 @@ export default function IntegratedFinancialSystem({
       if (stored) {
         let parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Guarantee Lorenz Gaum is configured as Main Super Admin
+          // Guarantee Lorenz Gaum is configured as Main Super Admin and passwords are cryptographically hashed
           parsed = parsed.map((u: any) => {
-            if (u.email?.toLowerCase() === "lorenz@horeca.com") {
+            const isLorenz = u.email?.toLowerCase() === "lorenz@horeca.com";
+            const currentPassword = u.password || "";
+            const securePassword = isPasswordHashed(currentPassword)
+              ? currentPassword
+              : isLorenz
+              ? INITIAL_HASHED_PASSWORDS.lorenz
+              : hashPassword(currentPassword);
+
+            if (isLorenz) {
               return {
                 ...u,
                 name: "Lorenz Gaum",
                 role: "superadmin",
                 isMainSuperAdmin: true,
+                password: securePassword
               };
             }
-            return u;
+            return {
+              ...u,
+              password: securePassword
+            };
           });
 
           // Merge initial accounts with stored accounts so new defaults are available
@@ -525,7 +544,7 @@ export default function IntegratedFinancialSystem({
     const foundUser = systemUsers.find(
       (acc) =>
         acc.email.toLowerCase() === loginEmail.trim().toLowerCase() &&
-        acc.password === loginPassword
+        verifyPassword(loginPassword, acc.password)
     );
 
     if (!foundUser) {
@@ -695,6 +714,7 @@ export default function IntegratedFinancialSystem({
     const created: SystemUser = {
       ...newUser,
       id,
+      password: isPasswordHashed(newUser.password) ? newUser.password : hashPassword(newUser.password),
       createdAt: new Date().toISOString().split("T")[0],
       otpVerified: false
     };
@@ -797,8 +817,17 @@ export default function IntegratedFinancialSystem({
       return;
     }
 
+    const safeUpdatedUser: SystemUser = {
+      ...updatedUser,
+      password: updatedUser.password
+        ? isPasswordHashed(updatedUser.password)
+          ? updatedUser.password
+          : hashPassword(updatedUser.password)
+        : target.password
+    };
+
     setSystemUsers((prev) =>
-      prev.map((u) => (u.id === updatedUser.id ? { ...u, ...updatedUser } : u))
+      prev.map((u) => (u.id === updatedUser.id ? safeUpdatedUser : u))
     );
     showToast(`User account ${updatedUser.name} updated successfully!`, "success");
     logAuditEvent({
@@ -806,7 +835,7 @@ export default function IntegratedFinancialSystem({
       module: "Security & User Management",
       description: `${isCurrentMainSuperAdmin ? "Main Super Admin Lorenz Gaum" : "Super Admin"} updated credentials for ${updatedUser.email} (Role: ${updatedUser.role})`,
       previousState: target,
-      newState: updatedUser
+      newState: safeUpdatedUser
     });
   };
 

@@ -1,9 +1,11 @@
+import { INITIAL_HASHED_PASSWORDS } from "./passwordAuth";
+
 export interface SubsystemAccount {
   subsystemId: "hr_payroll" | "hotel_mngt" | "resto_mngt" | "supply_chain" | "fleet_ops";
   subsystemName: string;
   subsystemShortName: string;
   email: string;
-  passwordHash: string; // The authorized password
+  passwordHash: string; // The authorized bcrypt password hash
   officerName: string;
   roleTitle: string;
   departmentCode: string;
@@ -17,7 +19,7 @@ export const SUBSYSTEM_ACCOUNTS: Record<string, SubsystemAccount> = {
     subsystemName: "HR & Payroll Subsystem",
     subsystemShortName: "HR-Payroll",
     email: "Janine@horeca.net",
-    passwordHash: "#Hular2026",
+    passwordHash: INITIAL_HASHED_PASSWORDS.janine,
     officerName: "Janine Hular",
     roleTitle: "HR & Payroll Director",
     departmentCode: "DEP-HR-2026",
@@ -29,7 +31,7 @@ export const SUBSYSTEM_ACCOUNTS: Record<string, SubsystemAccount> = {
     subsystemName: "Hotel Operations & Property Management (PMS)",
     subsystemShortName: "Hotel-MNGT",
     email: "Sheila@horeca.net",
-    passwordHash: "#Suede2026",
+    passwordHash: INITIAL_HASHED_PASSWORDS.sheila,
     officerName: "Sheila Suede",
     roleTitle: "Hotel Front Office & Operations Director",
     departmentCode: "DEP-PMS-2026",
@@ -41,7 +43,7 @@ export const SUBSYSTEM_ACCOUNTS: Record<string, SubsystemAccount> = {
     subsystemName: "Restaurant F&B Management",
     subsystemShortName: "Resto-MNGT",
     email: "Charles@horeca.net",
-    passwordHash: "#Tiu2026",
+    passwordHash: INITIAL_HASHED_PASSWORDS.charles,
     officerName: "Charles Tiu",
     roleTitle: "F&B Operations General Manager",
     departmentCode: "DEP-FNB-2026",
@@ -53,7 +55,7 @@ export const SUBSYSTEM_ACCOUNTS: Record<string, SubsystemAccount> = {
     subsystemName: "Supply Chain & Purveyor Procurement",
     subsystemShortName: "Supply-Chain",
     email: "Jordan@horeca.net",
-    passwordHash: "#Tiu2027",
+    passwordHash: INITIAL_HASHED_PASSWORDS.jordan,
     officerName: "Jordan Tiu",
     roleTitle: "Procurement & Supply Chain Controller",
     departmentCode: "DEP-SC-2026",
@@ -65,7 +67,7 @@ export const SUBSYSTEM_ACCOUNTS: Record<string, SubsystemAccount> = {
     subsystemName: "Fleet Logistics & Transport Operations",
     subsystemShortName: "FleetOps",
     email: "Lourence@horeca.net",
-    passwordHash: "#Piedad2026",
+    passwordHash: INITIAL_HASHED_PASSWORDS.lourence,
     officerName: "Lourence Piedad",
     roleTitle: "Fleet Operations & Transport Logistics Manager",
     departmentCode: "DEP-FLT-2026",

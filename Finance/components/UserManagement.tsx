@@ -661,6 +661,10 @@ export default function UserManagement({
                               </>
                             )}
                           </button>
+                          <span className="text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-mono flex items-center gap-1 mt-1 w-fit">
+                            <Lock className="h-2.5 w-2.5" />
+                            <span>Bcrypt ($2b$10$)</span>
+                          </span>
                         </td>
 
                         <td className="p-3">

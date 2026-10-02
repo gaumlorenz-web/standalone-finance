@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { SUBSYSTEM_ACCOUNTS, SubsystemAccount, SubsystemSession } from "../services/subsystemAuth";
 import { multiUserManager } from "../services/multiUserConfig";
+import { verifyPassword } from "../services/passwordAuth";
 
 interface SubsystemLoginPageProps {
   subsystemId: "hr_payroll" | "hotel_mngt" | "resto_mngt" | "supply_chain" | "fleet_ops";
@@ -104,10 +105,10 @@ export default function SubsystemLoginPage({
       setIsVerifying(false);
       const trimmedEmail = emailInput.trim().toLowerCase();
 
-      // Check standard designated officer account
+      // Check standard designated officer account with secure bcrypt verification
       const isDesignatedOfficer =
         trimmedEmail === accountConfig.email.toLowerCase() &&
-        passwordInput === accountConfig.passwordHash;
+        verifyPassword(passwordInput, accountConfig.passwordHash);
 
       // Also check against multi-user configuration registry
       const authResult = multiUserManager.authenticate(trimmedEmail, passwordInput);
