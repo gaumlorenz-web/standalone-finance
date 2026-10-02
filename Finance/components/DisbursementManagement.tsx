@@ -254,21 +254,30 @@ export default function DisbursementManagement({
   });
 
   // Modal State
-  const [isSimulateModalOpen, setIsSimulateModalOpen] = useState(false);
   const [selectedReceiptForView, setSelectedReceiptForView] = useState<DisbursementReceipt | null>(null);
   const [copiedToken, setCopiedToken] = useState(false);
-
-  // Simulation Form State
-  const [selectedDept, setSelectedDept] = useState<DepartmentBudgetCap["department"]>("Hotel Management");
-  const [payee, setPayee] = useState("Philippine Commercial Suppliers Co.");
-  const [purpose, setPurpose] = useState("Operational replenishment and routine service contract");
-  const [amount, setAmount] = useState<number>(65000);
-  const [deductedFrom, setDeductedFrom] = useState("1030 - Operating Bank Account - BDO Primary");
-  const [costCenter, setCostCenter] = useState("Hotel Housekeeping & Rooms");
 
   // Search/Filter
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedDeptFilter, setSelectedDeptFilter] = useState("ALL");
+
+  // Real-Time Interoperability Synchronization Listener
+  useEffect(() => {
+    const handleSync = () => {
+      try {
+        const savedReceipts = localStorage.getItem("horeca_disb_receipts");
+        if (savedReceipts) setReceipts(JSON.parse(savedReceipts));
+        const savedBudgets = localStorage.getItem("horeca_dept_budgets");
+        if (savedBudgets) setDepartmentBudgets(JSON.parse(savedBudgets));
+      } catch (e) {}
+    };
+    window.addEventListener("fms-sync-event", handleSync);
+    window.addEventListener("storage", handleSync);
+    return () => {
+      window.removeEventListener("fms-sync-event", handleSync);
+      window.removeEventListener("storage", handleSync);
+    };
+  }, []);
 
   // ==========================================
   // AI AUTOMATED BUDGET ALLOCATOR STATE
@@ -293,134 +302,6 @@ export default function DisbursementManagement({
     source?: string;
     model?: string;
   } | null>(null);
-
-  // Active Department Stats
-  const activeDeptInfo = useMemo(() => {
-    return departmentBudgets.find((d) => d.department === selectedDept) || departmentBudgets[0];
-  }, [departmentBudgets, selectedDept]);
-
-  const capRemaining = activeDeptInfo.budgetCap - activeDeptInfo.utilized;
-  const isOverCap = amount > capRemaining;
-  const projectedUtilized = activeDeptInfo.utilized + (amount || 0);
-  const projectedRemaining = activeDeptInfo.budgetCap - projectedUtilized;
-  const projectedPct = activeDeptInfo.budgetCap > 0 ? (projectedUtilized / activeDeptInfo.budgetCap) * 100 : 0;
-
-  // Preset Department Scenarios
-  const handlePresetSelect = (
-    dept: DepartmentBudgetCap["department"],
-    pPayee: string,
-    pPurpose: string,
-    pAmt: number,
-    pCenter: string
-  ) => {
-    setSelectedDept(dept);
-    setPayee(pPayee);
-    setPurpose(pPurpose);
-    setAmount(pAmt);
-    setCostCenter(pCenter);
-  };
-
-  // Submit Simulation & Issue Official Receipt
-  const handleExecuteSimulation = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!amount || amount <= 0) return;
-
-    const receiptNo = `RCV-2026-DISB-${Math.floor(100 + Math.random() * 900)}`;
-    const disbId = `DISB-${Math.floor(800 + Math.random() * 200)}`;
-
-    const isPetty = deductedFrom.includes("1010") || deductedFrom.includes("Front Desk");
-    const priorBal = isPetty ? cashPool.pettyCash : cashPool.bankOperating;
-    const postBal = Math.max(0, priorBal - Number(amount));
-
-    // Dynamic Line-Item Breakdown Generation
-    const primaryPart = purpose.split(" & ")[0] || purpose;
-    const secondaryPart = purpose.split(" & ")[1] || "Auxiliary Consumables & Service Pack";
-
-    const allocationItems: AllocationLineItem[] = [
-      {
-        id: "LI-1",
-        item: `Primary Requisition: ${primaryPart}`,
-        category: "Direct Departmental Material",
-        amount: Math.round(Number(amount) * 0.65),
-        percentage: 65
-      },
-      {
-        id: "LI-2",
-        item: `Secondary Replenishment: ${secondaryPart}`,
-        category: "Operational Ancillary Items",
-        amount: Math.round(Number(amount) * 0.25),
-        percentage: 25
-      },
-      {
-        id: "LI-3",
-        item: "Quality Verification, Delivery & Contingency Buffer",
-        category: "Internal Quality Audit & Freight",
-        amount: Math.round(Number(amount) * 0.10),
-        percentage: 10
-      }
-    ];
-
-    const budgetStatus: "WITHIN_CAP" | "ELEVATED_CAP" | "OVER_CAP" =
-      projectedPct >= 100 ? "OVER_CAP" : projectedPct >= 85 ? "ELEVATED_CAP" : "WITHIN_CAP";
-
-    const newReceipt: DisbursementReceipt = {
-      receiptNo,
-      id: disbId,
-      department: selectedDept,
-      payee,
-      purpose,
-      amount: Number(amount),
-      allocatedCostCenter: costCenter,
-      allocationCategory: "Operational Expenditure (OpEx)",
-      glDebitAccount: activeDeptInfo.glAccountName,
-      allocationItems,
-      deductedFromAccount: deductedFrom,
-      priorTreasuryBalance: priorBal,
-      postTreasuryBalance: postBal,
-      glCreditAccount: deductedFrom,
-      deductionMethod: isPetty ? "Physical Vault Cash Float Disbursement" : "PESONet Automated Electronic Clearing",
-      budgetCapBefore: activeDeptInfo.budgetCap,
-      utilizedBefore: activeDeptInfo.utilized,
-      utilizedAfter: activeDeptInfo.utilized + Number(amount),
-      budgetCapRemaining: Math.max(0, activeDeptInfo.budgetCap - (activeDeptInfo.utilized + Number(amount))),
-      capUtilizationPct: Math.min(100, Number((((activeDeptInfo.utilized + Number(amount)) / activeDeptInfo.budgetCap) * 100).toFixed(1))),
-      budgetCapStatus: budgetStatus,
-      status: "APPROVED_AND_DISBURSED",
-      requestedBy: `${currentUser.name} (${currentUser.role})`,
-      approvedBy: "Super Administrator",
-      timestamp: new Date().toISOString().replace("T", " ").substring(0, 16),
-      referenceToken: `DISB-${selectedDept.substring(0, 2).toUpperCase()}-${Math.round(amount / 1000)}K-${receiptNo.slice(-4)}`
-    };
-
-    // Update Department Budget utilized
-    setDepartmentBudgets((prev) => {
-      const updated = prev.map((d) =>
-        d.department === selectedDept
-          ? { ...d, utilized: d.utilized + Number(amount) }
-          : d
-      );
-      try {
-        localStorage.setItem("horeca_dept_budgets", JSON.stringify(updated));
-      } catch (err) {}
-      return updated;
-    });
-
-    // Update Receipts list
-    setReceipts((prev) => {
-      const updated = [newReceipt, ...prev];
-      try {
-        localStorage.setItem("horeca_disb_receipts", JSON.stringify(updated));
-      } catch (err) {}
-      return updated;
-    });
-
-    // Fire cross-module parent callback
-    onExecuteDisbursement(newReceipt);
-
-    // Show receipt viewer immediately
-    setSelectedReceiptForView(newReceipt);
-    setIsSimulateModalOpen(false);
-  };
 
   // ==========================================
   // AI BUDGET ALLOCATION ENGINE CALL
@@ -754,7 +635,7 @@ export default function DisbursementManagement({
             Department Disbursement Management
           </h2>
           <p className="text-xs text-[#5C636F]">
-            Simulate department requests, generate 3-stage allocation receipts (where allocated, where deducted, budget cap), and automate department budget allocations with Gemini AI.
+            Centralized ledger for department disbursement vouchers with 3-stage allocation receipts (where allocated, where deducted, budget cap), strict department budget caps, and automated budget allocations.
           </p>
         </div>
 
@@ -772,16 +653,6 @@ export default function DisbursementManagement({
           >
             <Sparkles className="h-4 w-4 text-amber-300 animate-pulse" />
             <span>AI Allocate Budget</span>
-          </button>
-
-          {/* Simulate Department Request Button */}
-          <button
-            type="button"
-            onClick={() => setIsSimulateModalOpen(true)}
-            className="px-4 py-2.5 bg-[#1A1D21] hover:bg-[#2A2E34] text-white rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] transition-all flex items-center gap-2 shadow-xs cursor-pointer"
-          >
-            <Send className="h-4 w-4 text-[#FF6A3D]" />
-            <span>Simulate Request &amp; Receipt</span>
           </button>
         </div>
       </div>
@@ -997,336 +868,6 @@ export default function DisbursementManagement({
           </table>
         </div>
       </div>
-
-      {/* =========================================================================
-          SIMULATE DISBURSEMENT REQUEST MODAL
-         ========================================================================= */}
-      {isSimulateModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-xl max-w-2xl w-full border border-[#DFE1DB] shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            {/* Modal Header */}
-            <div className="p-4 border-b border-[#DFE1DB] bg-[#F8F9F6] flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-[#1A1D21] text-white rounded-md">
-                  <Send className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-[#1A1D21] font-['Archivo']">
-                    Simulate Department Budget Request &amp; Receipt Voucher
-                  </h3>
-                  <p className="text-[11px] text-[#5C636F]">
-                    Tests where funds are allocated, from where they are deducted, and enforces budget caps.
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsSimulateModalOpen(false)}
-                className="p-1 hover:bg-[#E5E7EB] rounded-md text-[#5C636F] cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <form onSubmit={handleExecuteSimulation} className="p-5 space-y-4 max-h-[82vh] overflow-y-auto">
-              {/* Preset Scenario Selector Buttons */}
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-bold font-['IBM_Plex_Mono'] uppercase text-[#5C636F] block">
-                  Quick Simulation Presets by Department
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handlePresetSelect(
-                        "Hotel Management",
-                        "San Juan Linen Supply Co.",
-                        "Luxury Bath Towels & King Duvet Inserts Replacement",
-                        65000,
-                        "Hotel Housekeeping & Rooms"
-                      )
-                    }
-                    className="p-2 border border-[#DFE1DB] rounded-lg text-left hover:border-[#1A1D21] bg-[#F8F9F6] transition-all cursor-pointer"
-                  >
-                    <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] text-[#1A1D21] block">
-                      🏨 Hotel Rooms
-                    </span>
-                    <span className="text-[9px] text-[#5C636F] block truncate">Linen Replacement (₱65k)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handlePresetSelect(
-                        "Restaurant Management",
-                        "Highland Fresh Meats & Seafood",
-                        "A5 Wagyu Ribeye & Cold Storage Seafood Batch",
-                        120000,
-                        "F&B Main Kitchen Operations"
-                      )
-                    }
-                    className="p-2 border border-[#DFE1DB] rounded-lg text-left hover:border-[#1A1D21] bg-[#F8F9F6] transition-all cursor-pointer"
-                  >
-                    <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] text-[#1A1D21] block">
-                      🍽️ Restaurant F&amp;B
-                    </span>
-                    <span className="text-[9px] text-[#5C636F] block truncate">Culinary Meat/Seafood (₱120k)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handlePresetSelect(
-                        "HRMS Payroll",
-                        "HORECA Service Staff Remittance",
-                        "Bi-monthly Front Office & Kitchen Staff Wages",
-                        185000,
-                        "Hospitality Operations Workforce"
-                      )
-                    }
-                    className="p-2 border border-[#DFE1DB] rounded-lg text-left hover:border-[#1A1D21] bg-[#F8F9F6] transition-all cursor-pointer"
-                  >
-                    <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] text-[#1A1D21] block">
-                      👥 HRMS Payroll
-                    </span>
-                    <span className="text-[9px] text-[#5C636F] block truncate">Staff Payroll Run (₱185k)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handlePresetSelect(
-                        "Supply Chain",
-                        "Apex Central Storage & Logistics",
-                        "Warehouse Dry Goods Pallet Restocking",
-                        75000,
-                        "Central Storage Logistics"
-                      )
-                    }
-                    className="p-2 border border-[#DFE1DB] rounded-lg text-left hover:border-[#1A1D21] bg-[#F8F9F6] transition-all cursor-pointer"
-                  >
-                    <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] text-[#1A1D21] block">
-                      📦 Supply Chain
-                    </span>
-                    <span className="text-[9px] text-[#5C636F] block truncate">Dry Goods Pallets (₱75k)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handlePresetSelect(
-                        "FleetOps",
-                        "Petron Commercial Fleet Card",
-                        "Monthly Airport Shuttle Fleet Fuel & Preventive Servicing",
-                        45000,
-                        "Guest Transport & Shuttles"
-                      )
-                    }
-                    className="p-2 border border-[#DFE1DB] rounded-lg text-left hover:border-[#1A1D21] bg-[#F8F9F6] transition-all cursor-pointer"
-                  >
-                    <span className="text-[10px] font-bold font-['IBM_Plex_Mono'] text-[#1A1D21] block">
-                      🚐 FleetOps
-                    </span>
-                    <span className="text-[9px] text-[#5C636F] block truncate">Airport Shuttle Fuel (₱45k)</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Department & Cost Center */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] font-bold font-['IBM_Plex_Mono'] uppercase text-[#5C636F] block mb-1">
-                    Requesting Department
-                  </label>
-                  <select
-                    value={selectedDept}
-                    onChange={(e) => setSelectedDept(e.target.value as DepartmentBudgetCap["department"])}
-                    className="w-full text-xs p-2.5 bg-[#F8F9F6] border border-[#DFE1DB] rounded-lg font-['IBM_Plex_Mono'] focus:outline-none focus:border-[#1A1D21]"
-                  >
-                    {departmentBudgets.map((dept) => (
-                      <option key={dept.department} value={dept.department}>
-                        {dept.department} (Cap: ₱{dept.budgetCap.toLocaleString()})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-bold font-['IBM_Plex_Mono'] uppercase text-[#5C636F] block mb-1">
-                    Target Cost Center Allocation
-                  </label>
-                  <input
-                    type="text"
-                    value={costCenter}
-                    onChange={(e) => setCostCenter(e.target.value)}
-                    required
-                    className="w-full text-xs p-2.5 bg-[#F8F9F6] border border-[#DFE1DB] rounded-lg font-['IBM_Plex_Mono'] focus:outline-none focus:border-[#1A1D21]"
-                  />
-                </div>
-              </div>
-
-              {/* Payee and Purpose */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] font-bold font-['IBM_Plex_Mono'] uppercase text-[#5C636F] block mb-1">
-                    Beneficiary Payee Entity
-                  </label>
-                  <input
-                    type="text"
-                    value={payee}
-                    onChange={(e) => setPayee(e.target.value)}
-                    required
-                    className="w-full text-xs p-2.5 bg-[#F8F9F6] border border-[#DFE1DB] rounded-lg font-['IBM_Plex_Mono'] focus:outline-none focus:border-[#1A1D21]"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-bold font-['IBM_Plex_Mono'] uppercase text-[#5C636F] block mb-1">
-                    Disbursement Amount (PHP)
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#5C636F]">
-                      ₱
-                    </span>
-                    <input
-                      type="number"
-                      value={amount}
-                      onChange={(e) => setAmount(Number(e.target.value))}
-                      required
-                      className="w-full pl-7 pr-3 py-2.5 text-xs bg-[#F8F9F6] border border-[#DFE1DB] rounded-lg font-['IBM_Plex_Mono'] font-bold focus:outline-none focus:border-[#1A1D21]"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold font-['IBM_Plex_Mono'] uppercase text-[#5C636F] block mb-1">
-                  Expenditure Purpose &amp; Justification
-                </label>
-                <input
-                  type="text"
-                  value={purpose}
-                  onChange={(e) => setPurpose(e.target.value)}
-                  required
-                  className="w-full text-xs p-2.5 bg-[#F8F9F6] border border-[#DFE1DB] rounded-lg font-['IBM_Plex_Mono'] focus:outline-none focus:border-[#1A1D21]"
-                />
-              </div>
-
-              {/* Deduct from Treasury Liquidity Account */}
-              <div>
-                <label className="text-[11px] font-bold font-['IBM_Plex_Mono'] uppercase text-[#5C636F] block mb-1">
-                  Where Funds Will Be Deducted (Treasury Account)
-                </label>
-                <select
-                  value={deductedFrom}
-                  onChange={(e) => setDeductedFrom(e.target.value)}
-                  className="w-full text-xs p-2.5 bg-[#F8F9F6] border border-[#DFE1DB] rounded-lg font-['IBM_Plex_Mono'] focus:outline-none focus:border-[#1A1D21]"
-                >
-                  <option value="1030 - Operating Bank Account - BDO Primary">
-                    1030 - Operating Bank Account - BDO Primary (Liquid Balance: ₱{cashPool.bankOperating.toLocaleString()})
-                  </option>
-                  <option value="1010 - Front Desk Cash Float">
-                    1010 - Front Desk Cash Float (Liquid Balance: ₱{cashPool.pettyCash.toLocaleString()})
-                  </option>
-                </select>
-              </div>
-
-              {/* 3-Part Live Preview Card */}
-              <div className="p-4 rounded-xl border bg-[#F8F9F6] border-[#DFE1DB] space-y-3">
-                <div className="flex items-center justify-between text-xs font-['IBM_Plex_Mono'] pb-2 border-b border-[#DFE1DB]">
-                  <span className="font-bold text-[#1A1D21] flex items-center gap-1.5">
-                    <Info className="h-3.5 w-3.5 text-[#157A4D]" />
-                    <span>PREVIEW: RECEIPT ALLOCATION &amp; BUDGET CAP IMPACT</span>
-                  </span>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      isOverCap ? "bg-red-600 text-white" : "bg-[#157A4D]/10 text-[#157A4D]"
-                    }`}
-                  >
-                    {isOverCap ? "BUDGET CAP EXCEEDED" : "WITHIN ALLOCATED CAP"}
-                  </span>
-                </div>
-
-                {/* 3 Stage Summary Breakdown */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px] font-['IBM_Plex_Mono']">
-                  {/* Stage 1 Preview */}
-                  <div className="p-2.5 bg-white rounded-lg border border-[#DFE1DB] space-y-1">
-                    <span className="text-[10px] font-bold text-blue-700 block uppercase">
-                      1. Allocated To
-                    </span>
-                    <p className="font-bold text-[#1A1D21] text-xs">{selectedDept}</p>
-                    <p className="text-[10px] text-[#5C636F] truncate">{costCenter}</p>
-                    <p className="text-[9px] text-[#5C636F]">GL Debit: {activeDeptInfo.glAccountCode}</p>
-                  </div>
-
-                  {/* Stage 2 Preview */}
-                  <div className="p-2.5 bg-white rounded-lg border border-[#DFE1DB] space-y-1">
-                    <span className="text-[10px] font-bold text-amber-700 block uppercase">
-                      2. Deducted From
-                    </span>
-                    <p className="font-bold text-[#1A1D21] text-xs truncate">
-                      {deductedFrom.includes("1010") ? "1010 Cash Float" : "1030 Operating Bank"}
-                    </p>
-                    <p className="text-[10px] text-[#B5281A] font-bold">
-                      -₱{Number(amount || 0).toLocaleString()}
-                    </p>
-                    <p className="text-[9px] text-[#5C636F]">Liquid Outflow</p>
-                  </div>
-
-                  {/* Stage 3 Preview */}
-                  <div className="p-2.5 bg-white rounded-lg border border-[#DFE1DB] space-y-1">
-                    <span className="text-[10px] font-bold text-emerald-700 block uppercase">
-                      3. Budget Cap
-                    </span>
-                    <p className="font-bold text-[#1A1D21] text-xs">
-                      ₱{projectedRemaining.toLocaleString()} rem
-                    </p>
-                    <div className="w-full bg-[#E5E7EB] rounded-full h-1.5 overflow-hidden">
-                      <div
-                        className={`h-1.5 rounded-full ${
-                          projectedPct >= 100 ? "bg-[#B5281A]" : projectedPct >= 80 ? "bg-[#FF6A3D]" : "bg-[#157A4D]"
-                        }`}
-                        style={{ width: `${Math.min(100, projectedPct)}%` }}
-                      />
-                    </div>
-                    <p className="text-[9px] text-[#5C636F]">{projectedPct.toFixed(1)}% Cap Utilized</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#DFE1DB]">
-                <button
-                  type="button"
-                  onClick={() => setIsSimulateModalOpen(false)}
-                  className="px-4 py-2 border border-[#DFE1DB] rounded-lg text-xs font-bold text-[#5C636F] hover:bg-[#F1F1ED] transition-all cursor-pointer font-['IBM_Plex_Mono']"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isOverCap && currentUser.role !== "superadmin"}
-                  className={`px-5 py-2 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] transition-all flex items-center gap-2 shadow-xs cursor-pointer ${
-                    isOverCap && currentUser.role !== "superadmin"
-                      ? "bg-slate-300 text-slate-500 cursor-not-allowed"
-                      : isOverCap
-                      ? "bg-[#B5281A] hover:bg-red-800 text-white"
-                      : "bg-[#157A4D] hover:bg-[#11633E] text-white"
-                  }`}
-                >
-                  <CheckCircle2 className="h-4 w-4" />
-                  <span>
-                    {isOverCap && currentUser.role === "superadmin"
-                      ? "Override Cap & Issue Receipt (Super Admin)"
-                      : "Authorize & Generate Official Receipt"}
-                  </span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* =========================================================================
           OFFICIAL 3-STAGE DISBURSEMENT RECEIPT VOUCHER MODAL

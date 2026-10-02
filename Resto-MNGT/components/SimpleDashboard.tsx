@@ -15,16 +15,19 @@ import {
   QrCode,
   Banknote,
   ShieldAlert,
-  FileSpreadsheet
+  FileSpreadsheet,
+  FileText
 } from "lucide-react";
 import { fmsBridge, FmsPacket } from "../../src/services/fmsBridge";
+import SubsystemDisbursementSection from "../../src/components/SubsystemDisbursementSection";
+import SubsystemIncomingArSection from "../../src/components/SubsystemIncomingArSection";
 
 interface SimpleDashboardProps {
   onNavigateToFms?: (tab?: string) => void;
 }
 
 export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProps) {
-  const [activeTab, setActiveTab] = useState<"pos_settlement" | "palengke_liquidation" | "food_cost">("pos_settlement");
+  const [activeTab, setActiveTab] = useState<"pos_settlement" | "palengke_liquidation" | "food_cost" | "disbursements" | "incoming_ar">("pos_settlement");
 
   // TAB 1: POS Settlement State
   const [grossSales, setGrossSales] = useState<number>(98500);
@@ -397,6 +400,30 @@ export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProp
             <ShieldAlert className="h-3.5 w-3.5" />
             <span>3. Food Cost Threshold Monitoring</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab("disbursements")}
+            className={`px-4 py-2.5 text-xs font-bold font-['IBM_Plex_Mono'] rounded-t-xl transition-all cursor-pointer flex items-center gap-2 ${
+              activeTab === "disbursements"
+                ? "bg-white text-rose-700 border-t-2 border-rose-600 shadow-xs"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            <span>4. Invoiced Disbursements &amp; Receipts</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("incoming_ar")}
+            className={`px-4 py-2.5 text-xs font-bold font-['IBM_Plex_Mono'] rounded-t-xl transition-all cursor-pointer flex items-center gap-2 ${
+              activeTab === "incoming_ar"
+                ? "bg-white text-blue-700 border-t-2 border-blue-600 shadow-xs"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            <span>5. Simulate Incoming AR (Catering)</span>
+          </button>
         </div>
 
         {/* TAB 1: POS CASH & CREDIT CARD SETTLEMENT */}
@@ -717,6 +744,85 @@ export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProp
               </div>
             </div>
           </div>
+        )}
+
+        {/* TAB 4: INVOICED DISBURSEMENTS & ALLOCATION RECEIPTS (BUDGET CAPPED) */}
+        {activeTab === "disbursements" && (
+          <SubsystemDisbursementSection
+            sourceModule="Resto-MNGT"
+            departmentName="Restaurant Management"
+            defaultCostCenter="F&B Kitchen Operations & Provisions"
+            defaultCategory="Raw Food & Culinary Provisions"
+            defaultGlDebitAccount="5020 - F&B Food & Beverage Purveyor Replenishment"
+            requesterName="Charles Tiu (F&B General Manager)"
+            onNavigateToFms={onNavigateToFms}
+            presets={[
+              {
+                payee: "Pacific Wagyu & Seafood Cold Storage Inc.",
+                purpose: "Weekend Banquet Wagyu Ribeye & Lobster Tails Delivery",
+                amount: 145000,
+                allocationItems: [
+                  { item: "A5 Kagoshima Wagyu Striploin (20kg Vacuum Sealed)", category: "Culinary Beef", amount: 95000, percentage: 66 },
+                  { item: "Live Boston Maine Lobsters & Wild Scallops", category: "Fresh Seafood", amount: 38000, percentage: 26 },
+                  { item: "Refrigerated Cryo-Logistics & Temperature Audit", category: "Cold Chain Transport", amount: 12000, percentage: 8 }
+                ]
+              },
+              {
+                payee: "Farmer's Organic Produce & Fresh Culinary Herbs",
+                purpose: "Daily Fresh Wet Market & Specialty Vegetable Supply",
+                amount: 32000,
+                allocationItems: [
+                  { item: "Baguio Baby Vegetables, Truffles & Microgreens", category: "Fresh Greens", amount: 18000, percentage: 56 },
+                  { item: "Imported Italian Virgin Olive Oil & Aged Balsamic", category: "Pantry Goods", amount: 14000, percentage: 44 }
+                ]
+              },
+              {
+                payee: "Rational Philippines Commercial Kitchen Engineering",
+                purpose: "Main Line Combi-Oven Calibration, Descaling & Gas Burner Maintenance",
+                amount: 24000,
+                allocationItems: [
+                  { item: "Steam Injector Descaling & Gasket Seal Overhaul", category: "Oven Maintenance", amount: 16000, percentage: 67 },
+                  { item: "Gas Burner Pressure Safety Calibration & Certification", category: "Engineering Compliance", amount: 8000, percentage: 33 }
+                ]
+              }
+            ]}
+          />
+        )}
+
+        {/* TAB 5: SIMULATE INCOMING AR (CATERING & BANQUET INVOICING) */}
+        {activeTab === "incoming_ar" && (
+          <SubsystemIncomingArSection
+            sourceModule="Resto-MNGT"
+            requesterName="Charles Tiu (F&B Operations GM)"
+            defaultCategory="F&B Catering Receivable"
+            onNavigateToFms={onNavigateToFms}
+            presets={[
+              {
+                customer: "Tan-Reyes Wedding Grand Catering (250 Pax)",
+                category: "F&B Catering Receivable",
+                amount: 165000,
+                terms: "Net 15 Days",
+                paymentMethod: "Bank Transfer (BDO Unibank)",
+                notes: "5-course plated banquet dining, carving station & premium champagne package"
+              },
+              {
+                customer: "Metrobank Private Wealth Executive Gala",
+                category: "Corporate Banquet & Event",
+                amount: 95000,
+                terms: "Net 30 Days",
+                paymentMethod: "Corporate City Ledger Billing",
+                notes: "Annual high-net-worth investor dinner with live chef stations and sommelier pairing"
+              },
+              {
+                customer: "European Chamber of Commerce VIP Luncheon",
+                category: "F&B Catering Receivable",
+                amount: 48000,
+                terms: "Net 30 Days",
+                paymentMethod: "Corporate City Ledger Billing",
+                notes: "Private executive boardroom luncheon for 35 corporate delegates"
+              }
+            ]}
+          />
         )}
 
         {/* FMS Transmission Logs */}

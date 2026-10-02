@@ -16,7 +16,9 @@ import {
   Check,
   X,
   Sparkles,
-  Clock
+  Clock,
+  Edit3,
+  Crown
 } from "lucide-react";
 import ExportButton from "./ExportButton";
 
@@ -31,17 +33,19 @@ export interface SystemUser {
   createdAt: string;
   lastLogin?: string;
   otpVerified: boolean;
+  isMainSuperAdmin?: boolean;
 }
 
 interface UserManagementProps {
   users: SystemUser[];
   onAddUser: (newUser: Omit<SystemUser, "id" | "createdAt" | "otpVerified">) => void;
+  onEditUser?: (updatedUser: SystemUser) => void;
   onToggleUserStatus: (userId: string) => void;
   onResetUserOtp: (userId: string) => void;
   onDeleteUser: (userId: string) => void;
   unmaskPassword: string;
   onUpdateUnmaskPassword: (newPass: string) => void;
-  currentUser: { email: string; role: string; name: string } | null;
+  currentUser: { id?: string; email: string; role: string; name: string } | null;
   isDataMasked: boolean;
   maskField: (val: any, type: string) => string;
 }
@@ -49,6 +53,7 @@ interface UserManagementProps {
 export default function UserManagement({
   users,
   onAddUser,
+  onEditUser,
   onToggleUserStatus,
   onResetUserOtp,
   onDeleteUser,
@@ -77,6 +82,71 @@ export default function UserManagement({
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
+
+  const isCurrentUserMainSuperAdmin = currentUser?.email?.toLowerCase() === "lorenz@horeca.com";
+
+  // Edit User Modal State
+  const [editingUser, setEditingUser] = useState<SystemUser | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editGoogleAccount, setEditGoogleAccount] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [editRole, setEditRole] = useState<"admin" | "superadmin">("admin");
+  const [editStatus, setEditStatus] = useState<"active" | "suspended">("active");
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  const [editError, setEditError] = useState("");
+
+  const handleStartEditUser = (user: SystemUser) => {
+    setEditingUser(user);
+    setEditName(user.name);
+    setEditEmail(user.email);
+    setEditGoogleAccount(user.googleAccount);
+    setEditPassword(user.password);
+    setEditRole(user.role);
+    setEditStatus(user.status);
+    setEditError("");
+  };
+
+  const handleSaveEditUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setEditError("");
+
+    if (!editName.trim() || !editEmail.trim() || !editGoogleAccount.trim()) {
+      setEditError("Full name, system email, and Google account are required.");
+      return;
+    }
+
+    if (!editGoogleAccount.includes("@gmail.com") && !editGoogleAccount.includes("@googlemail.com")) {
+      setEditError("Linked Google account must be a valid @gmail.com address.");
+      return;
+    }
+
+    // Check duplicate email if changed
+    if (
+      editEmail.toLowerCase() !== editingUser.email.toLowerCase() &&
+      users.some((u) => u.id !== editingUser.id && u.email.toLowerCase() === editEmail.toLowerCase())
+    ) {
+      setEditError("Another user is already registered with this email address.");
+      return;
+    }
+
+    const updated: SystemUser = {
+      ...editingUser,
+      name: editName.trim(),
+      email: editEmail.trim(),
+      googleAccount: editGoogleAccount.trim(),
+      password: editPassword.trim() || editingUser.password,
+      role: editingUser.email.toLowerCase() === "lorenz@horeca.com" ? "superadmin" : editRole,
+      status: editStatus,
+      isMainSuperAdmin: editingUser.email.toLowerCase() === "lorenz@horeca.com" ? true : editingUser.isMainSuperAdmin
+    };
+
+    if (onEditUser) {
+      onEditUser(updated);
+    }
+    setEditingUser(null);
+  };
 
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
@@ -548,23 +618,30 @@ export default function UserManagement({
                         </td>
 
                         <td className="p-3">
-                          <span
-                            className={`inline-flex items-center gap-1 text-[10px] font-['IBM_Plex_Mono'] font-bold px-2 py-0.5 rounded border ${
-                              user.role === "superadmin"
-                                ? "bg-red-50 text-[#B53A1E] border-red-200"
-                                : "bg-blue-50 text-blue-700 border-blue-200"
-                            }`}
-                          >
-                            <Shield className="h-3 w-3" />
-                            {user.role === "superadmin" ? "Super Admin" : "Standard Admin"}
-                          </span>
+                          {user.email.toLowerCase() === "lorenz@horeca.com" ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-['IBM_Plex_Mono'] font-bold px-2 py-0.5 rounded border bg-amber-100 text-amber-900 border-amber-300 shadow-2xs">
+                              <Crown className="h-3 w-3 text-amber-600" />
+                              <span>Main Super Admin</span>
+                            </span>
+                          ) : (
+                            <span
+                              className={`inline-flex items-center gap-1 text-[10px] font-['IBM_Plex_Mono'] font-bold px-2 py-0.5 rounded border ${
+                                user.role === "superadmin"
+                                  ? "bg-red-50 text-[#B53A1E] border-red-200"
+                                  : "bg-blue-50 text-blue-700 border-blue-200"
+                              }`}
+                            >
+                              <Shield className="h-3 w-3" />
+                              {user.role === "superadmin" ? "Super Admin" : "Standard Admin"}
+                            </span>
+                          )}
                         </td>
 
                         <td className="p-3">
                           <button
                             type="button"
                             onClick={() => onToggleUserStatus(user.id)}
-                            disabled={user.role === "superadmin"}
+                            disabled={user.email.toLowerCase() === "lorenz@horeca.com" || (!isCurrentUserMainSuperAdmin && user.role === "superadmin")}
                             className={`inline-flex items-center gap-1 text-[10px] font-['IBM_Plex_Mono'] font-bold px-2 py-0.5 rounded-full border cursor-pointer ${
                               user.status === "active"
                                 ? "bg-emerald-50 text-[#157A4D] border-emerald-200 hover:bg-emerald-100"
@@ -603,11 +680,27 @@ export default function UserManagement({
                             >
                               <RefreshCw className="h-3.5 w-3.5" />
                             </button>
-                            {user.role !== "superadmin" && (
+
+                            {/* Edit Button: Main Super Admin can edit any user; other users can edit non-superadmins or themselves */}
+                            {(isCurrentUserMainSuperAdmin || user.role !== "superadmin" || user.email.toLowerCase() === currentUser?.email.toLowerCase()) && (
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditUser(user)}
+                                title="Edit User Account & Credentials"
+                                className="p-1.5 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 rounded-lg transition-colors cursor-pointer"
+                              >
+                                <Edit3 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+
+                            {/* Delete Button:
+                                1) Main Super Admin (Lorenz Gaum) can delete ANY account including Super Admins, EXCEPT himself.
+                                2) Other administrators can only delete non-superadmins. */}
+                            {(isCurrentUserMainSuperAdmin ? user.email.toLowerCase() !== "lorenz@horeca.com" : user.role !== "superadmin") && (
                               <button
                                 type="button"
                                 onClick={() => onDeleteUser(user.id)}
-                                title="Remove User Account"
+                                title={user.role === "superadmin" ? "Delete Super Admin Account (Main Super Admin Authority)" : "Remove User Account"}
                                 className="p-1.5 bg-[#B5281A]/10 hover:bg-[#B5281A] hover:text-white text-[#B5281A] rounded-lg transition-colors cursor-pointer"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -624,6 +717,156 @@ export default function UserManagement({
           </div>
         </div>
       </div>
+
+      {/* EDIT USER MODAL */}
+      {editingUser && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-[#DFE1DB] shadow-2xl overflow-hidden p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#DFE1DB] pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
+                  <Edit3 className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base font-['Archivo'] text-[#1A1D21]">
+                    Edit User Account Credentials
+                  </h3>
+                  <p className="text-xs text-[#5C636F]">
+                    {editingUser.email.toLowerCase() === "lorenz@horeca.com" ? "Main Super Admin Profile" : `Modify account settings for ${editingUser.name}`}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingUser(null)}
+                className="text-[#5C636F] hover:text-[#1A1D21] p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {editError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-[#B5281A] flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEditUser} className="space-y-3.5 text-xs font-['IBM_Plex_Mono']">
+              <div>
+                <label className="block text-[11px] font-bold text-[#5C636F] uppercase mb-1">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  required
+                  className="w-full bg-[#F1F1ED] border border-[#DFE1DB] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#1A1D21]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#5C636F] uppercase mb-1">
+                  System Login Email
+                </label>
+                <input
+                  type="email"
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  required
+                  disabled={editingUser.email.toLowerCase() === "lorenz@horeca.com"}
+                  className="w-full bg-[#F1F1ED] border border-[#DFE1DB] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#1A1D21] disabled:opacity-60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#5C636F] uppercase mb-1">
+                  Linked Google Account (Gmail for 2FA OTP)
+                </label>
+                <input
+                  type="email"
+                  value={editGoogleAccount}
+                  onChange={(e) => setEditGoogleAccount(e.target.value)}
+                  required
+                  className="w-full bg-[#F1F1ED] border border-[#DFE1DB] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#1A1D21]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#5C636F] uppercase mb-1">
+                  Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showEditPassword ? "text" : "password"}
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    required
+                    className="w-full bg-[#F1F1ED] border border-[#DFE1DB] rounded-lg px-3 py-2 pr-10 text-xs focus:outline-none focus:border-[#1A1D21]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPassword(!showEditPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5C636F] hover:text-[#1A1D21]"
+                  >
+                    {showEditPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-[#5C636F] uppercase mb-1">
+                    System Role
+                  </label>
+                  <select
+                    value={editRole}
+                    onChange={(e) => setEditRole(e.target.value as "admin" | "superadmin")}
+                    disabled={editingUser.email.toLowerCase() === "lorenz@horeca.com" || (!isCurrentUserMainSuperAdmin && editingUser.role === "superadmin")}
+                    className="w-full bg-[#F1F1ED] border border-[#DFE1DB] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#1A1D21] disabled:opacity-60"
+                  >
+                    <option value="admin">Standard Admin</option>
+                    <option value="superadmin">Super Admin</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-[#5C636F] uppercase mb-1">
+                    Account Status
+                  </label>
+                  <select
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value as "active" | "suspended")}
+                    disabled={editingUser.email.toLowerCase() === "lorenz@horeca.com"}
+                    className="w-full bg-[#F1F1ED] border border-[#DFE1DB] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#1A1D21] disabled:opacity-60"
+                  >
+                    <option value="active">Active</option>
+                    <option value="suspended">Suspended</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#DFE1DB]">
+                <button
+                  type="button"
+                  onClick={() => setEditingUser(null)}
+                  className="px-4 py-2 border border-[#DFE1DB] text-[#5C636F] hover:bg-slate-100 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-[#1A1D21] hover:bg-[#2A2E34] text-white rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Check className="h-4 w-4" />
+                  <span>Save Changes</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

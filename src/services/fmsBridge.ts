@@ -41,6 +41,54 @@ export interface GovernanceApprovalRequest {
   rejectionReason?: string;
 }
 
+export interface DepartmentBudgetCap {
+  department: string;
+  budgetCap: number;
+  allocated: number;
+  utilized: number;
+  glAccountCode: string;
+  glAccountName: string;
+  icon: string;
+  description: string;
+}
+
+export interface AllocationLineItem {
+  id: string;
+  item: string;
+  category: string;
+  amount: number;
+  percentage: number;
+}
+
+export interface DisbursementReceipt {
+  receiptNo: string;
+  id: string;
+  department: string;
+  payee: string;
+  purpose: string;
+  amount: number;
+  allocatedCostCenter: string;
+  allocationCategory: string;
+  glDebitAccount: string;
+  allocationItems: AllocationLineItem[];
+  deductedFromAccount: string;
+  priorTreasuryBalance: number;
+  postTreasuryBalance: number;
+  glCreditAccount: string;
+  deductionMethod: string;
+  budgetCapBefore: number;
+  utilizedBefore: number;
+  utilizedAfter: number;
+  budgetCapRemaining: number;
+  capUtilizationPct: number;
+  budgetCapStatus: "WITHIN_CAP" | "ELEVATED_CAP" | "OVER_CAP";
+  status: "APPROVED_AND_DISBURSED" | "PENDING_SUPERADMIN";
+  requestedBy: string;
+  approvedBy: string;
+  timestamp: string;
+  referenceToken: string;
+}
+
 const STORAGE_KEYS = {
   JOURNAL: "horeca_journal_entries",
   AP: "horeca_ap_invoices",
@@ -49,6 +97,8 @@ const STORAGE_KEYS = {
   CASH: "horeca_cash_pool",
   COLLECTIONS: "horeca_collections_items",
   DISBURSEMENTS: "horeca_disbursements",
+  DISB_RECEIPTS: "horeca_disb_receipts",
+  DEPT_BUDGETS: "horeca_dept_budgets",
   APPROVALS: "horeca_pending_approvals",
   TAX: "horeca_tax_records",
   AUDIT: "horeca_audit_logs",
@@ -675,6 +725,435 @@ export const fmsBridge = {
         auditLogsCount: 0,
         lastSyncTime: "Just now",
       };
+    }
+  },
+
+  // -------------------------------------------------------------
+  // DEPARTMENT BUDGET CAPS & ALLOCATIONS
+  // -------------------------------------------------------------
+  getDefaultDepartmentBudgets(): DepartmentBudgetCap[] {
+    return [
+      {
+        department: "Hotel Management",
+        budgetCap: 2500000,
+        allocated: 2100000,
+        utilized: 1380000,
+        glAccountCode: "5010",
+        glAccountName: "5010 - Hotel Guest Supplies, Amenities & Maintenance",
+        icon: "building",
+        description: "Guest suites, front desk, housekeeping linens, and room infrastructure"
+      },
+      {
+        department: "Restaurant Management",
+        budgetCap: 1800000,
+        allocated: 1500000,
+        utilized: 985000,
+        glAccountCode: "5020",
+        glAccountName: "5020 - F&B Food & Beverage Purveyor Replenishment",
+        icon: "utensils",
+        description: "Culinary provisions, beverage cellars, and banquet dining logistics"
+      },
+      {
+        department: "HRMS Payroll",
+        budgetCap: 2400000,
+        allocated: 2200000,
+        utilized: 1650000,
+        glAccountCode: "5110",
+        glAccountName: "5110 - Executive, Service & Banquet Payroll",
+        icon: "users",
+        description: "Base hospitality wages, statutory contributions, and overtime compensation"
+      },
+      {
+        department: "Supply Chain",
+        budgetCap: 1500000,
+        allocated: 1250000,
+        utilized: 790000,
+        glAccountCode: "5030",
+        glAccountName: "5030 - Warehouse Logistics, Cold Storage & Linen",
+        icon: "truck",
+        description: "Bulk procurement, cold chain storage preservation, and logistics inventory"
+      },
+      {
+        department: "FleetOps",
+        budgetCap: 900000,
+        allocated: 750000,
+        utilized: 410000,
+        glAccountCode: "5410",
+        glAccountName: "5410 - Airport Shuttle Van Fuel, Tolls & Maintenance",
+        icon: "car",
+        description: "VIP airport shuttles, commercial fleet fuel, and scheduled vehicle servicing"
+      }
+    ];
+  },
+
+  getDepartmentBudgets(): DepartmentBudgetCap[] {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.DEPT_BUDGETS);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    const defaults = this.getDefaultDepartmentBudgets();
+    try {
+      localStorage.setItem(STORAGE_KEYS.DEPT_BUDGETS, JSON.stringify(defaults));
+    } catch (e) {}
+    return defaults;
+  },
+
+  checkDepartmentBudgetCap(departmentName: string, requestedAmount: number) {
+    const budgets = this.getDepartmentBudgets();
+    const dept = budgets.find(
+      (b) =>
+        b.department.toLowerCase().includes(departmentName.toLowerCase().split(" ")[0]) ||
+        departmentName.toLowerCase().includes(b.department.toLowerCase().split(" ")[0])
+    ) || budgets[0];
+
+    const budgetCap = dept.budgetCap;
+    const utilizedBefore = dept.utilized;
+    const remainingCap = Math.max(0, budgetCap - utilizedBefore);
+    const isExceeded = requestedAmount > remainingCap;
+    const cappedAmount = isExceeded ? remainingCap : requestedAmount;
+    const utilizedAfter = utilizedBefore + cappedAmount;
+    const budgetCapRemaining = Math.max(0, budgetCap - utilizedAfter);
+    const capUtilizationPct = Number(((utilizedAfter / budgetCap) * 100).toFixed(1));
+    const budgetCapStatus: "WITHIN_CAP" | "ELEVATED_CAP" | "OVER_CAP" =
+      isExceeded ? "OVER_CAP" : capUtilizationPct >= 85 ? "ELEVATED_CAP" : "WITHIN_CAP";
+
+    return {
+      dept,
+      department: dept.department,
+      budgetCap,
+      utilizedBefore,
+      utilizedAfter,
+      remainingCap,
+      budgetCapRemaining,
+      capUtilizationPct,
+      budgetCapStatus,
+      isExceeded,
+      cappedAmount,
+      glAccountCode: dept.glAccountCode,
+      glAccountName: dept.glAccountName,
+    };
+  },
+
+  // Retrieve All Disbursement Receipts
+  getDisbursementReceipts(filterDept?: string): DisbursementReceipt[] {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.DISB_RECEIPTS);
+      if (stored) {
+        const parsed: DisbursementReceipt[] = JSON.parse(stored);
+        if (filterDept && filterDept !== "ALL") {
+          return parsed.filter((r) => r.department === filterDept);
+        }
+        return parsed;
+      }
+    } catch (e) {}
+    return [];
+  },
+
+  // Submit Disbursement Invoice with Receipt (Enforces Budget Cap and Records Allocation)
+  submitDisbursementInvoiceWithReceipt(params: {
+    sourceModule: "HR-Payroll" | "Hotel-MNGT" | "Resto-MNGT" | "Supply-Chain" | "FleetOps";
+    departmentName: string;
+    payee: string;
+    purpose: string;
+    requestedAmount: number;
+    allocatedCostCenter: string;
+    allocationCategory: string;
+    glDebitAccount?: string;
+    allocationItems: AllocationLineItem[];
+    deductedFromAccount?: string;
+    deductionMethod?: string;
+    requestedBy: string;
+    enforceHardCap?: boolean;
+  }) {
+    try {
+      // 1. Budget Cap Validation against Department Pool
+      const capCheck = this.checkDepartmentBudgetCap(params.departmentName, params.requestedAmount);
+      const effectiveAmount = params.enforceHardCap ? capCheck.cappedAmount : params.requestedAmount;
+      const wasCapped = params.requestedAmount > capCheck.remainingCap;
+
+      // 2. Read and Deduct from Treasury Cash Liquidity Pool
+      const cashStored = localStorage.getItem(STORAGE_KEYS.CASH);
+      const cash = cashStored ? JSON.parse(cashStored) : { bankOperating: 2450000, pettyCash: 185000 };
+      const isPetty = (params.deductedFromAccount || "").includes("1010") || (params.deductedFromAccount || "").includes("Petty") || (params.deductedFromAccount || "").includes("Front Desk");
+      const priorTreasuryBalance = isPetty ? cash.pettyCash : cash.bankOperating;
+      const postTreasuryBalance = Math.max(0, priorTreasuryBalance - effectiveAmount);
+
+      const updatedCash = {
+        bankOperating: isPetty ? cash.bankOperating : Math.max(0, cash.bankOperating - effectiveAmount),
+        pettyCash: isPetty ? Math.max(0, cash.pettyCash - effectiveAmount) : cash.pettyCash,
+      };
+      localStorage.setItem(STORAGE_KEYS.CASH, JSON.stringify(updatedCash));
+
+      // 3. Update Department Budget Cap Utilization
+      const currentBudgets = this.getDepartmentBudgets();
+      const updatedBudgets = currentBudgets.map((b) => {
+        if (b.department === capCheck.department) {
+          return {
+            ...b,
+            utilized: b.utilized + effectiveAmount,
+          };
+        }
+        return b;
+      });
+      localStorage.setItem(STORAGE_KEYS.DEPT_BUDGETS, JSON.stringify(updatedBudgets));
+
+      // Also sync into horeca_budget_data if present
+      try {
+        const bdStored = localStorage.getItem("horeca_budget_data");
+        if (bdStored) {
+          const bd = JSON.parse(bdStored);
+          const updatedBd = bd.map((b: any) =>
+            b.department.toLowerCase().includes(capCheck.department.toLowerCase().split(" ")[0])
+              ? { ...b, spent: (b.spent || 0) + effectiveAmount }
+              : b
+          );
+          localStorage.setItem("horeca_budget_data", JSON.stringify(updatedBd));
+        }
+      } catch (e) {}
+
+      // 4. Generate Official 3-Stage Disbursement Receipt Voucher
+      const receiptNo = `RCV-2026-DISB-${Math.floor(700 + Math.random() * 300)}`;
+      const disbId = `DISB-${Math.floor(1000 + Math.random() * 9000)}`;
+      const dateStr = new Date().toISOString().replace("T", " ").substring(0, 16);
+      const token = `DISB-${params.sourceModule.substring(0, 3).toUpperCase()}-${Math.round(effectiveAmount / 1000)}K-${isPetty ? "CASH" : "BDO"}-${Math.floor(100 + Math.random() * 900)}`;
+
+      const newReceipt: DisbursementReceipt = {
+        receiptNo,
+        id: disbId,
+        department: capCheck.department,
+        payee: params.payee,
+        purpose: params.purpose,
+        amount: effectiveAmount,
+        allocatedCostCenter: params.allocatedCostCenter,
+        allocationCategory: params.allocationCategory,
+        glDebitAccount: params.glDebitAccount || capCheck.glAccountName,
+        allocationItems: params.allocationItems,
+        deductedFromAccount: params.deductedFromAccount || (isPetty ? "1010 - Front Desk / Resto Cash Float" : "1030 - Operating Bank Account - BDO Primary"),
+        priorTreasuryBalance,
+        postTreasuryBalance,
+        glCreditAccount: params.deductedFromAccount || (isPetty ? "1010 - Front Desk / Resto Cash Float" : "1030 - Operating Bank Account - BDO Primary"),
+        deductionMethod: params.deductionMethod || (isPetty ? "Petty Cash Voucher Disbursement" : "PESONet Automated Electronic Clearing"),
+        budgetCapBefore: capCheck.budgetCap,
+        utilizedBefore: capCheck.utilizedBefore,
+        utilizedAfter: capCheck.utilizedBefore + effectiveAmount,
+        budgetCapRemaining: Math.max(0, capCheck.budgetCap - (capCheck.utilizedBefore + effectiveAmount)),
+        capUtilizationPct: Number((((capCheck.utilizedBefore + effectiveAmount) / capCheck.budgetCap) * 100).toFixed(1)),
+        budgetCapStatus: wasCapped ? "OVER_CAP" : capCheck.budgetCapStatus,
+        status: "APPROVED_AND_DISBURSED",
+        requestedBy: params.requestedBy,
+        approvedBy: "Super Administrator (FMS Core)",
+        timestamp: dateStr,
+        referenceToken: token,
+      };
+
+      // Save to receipts log
+      const existingReceipts = this.getDisbursementReceipts();
+      const updatedReceipts = [newReceipt, ...existingReceipts];
+      localStorage.setItem(STORAGE_KEYS.DISB_RECEIPTS, JSON.stringify(updatedReceipts));
+
+      // Append to legacy disbursements table
+      try {
+        const storedDisbs = JSON.parse(localStorage.getItem(STORAGE_KEYS.DISBURSEMENTS) || "[]");
+        const disbRow = {
+          id: disbId,
+          payee: params.payee,
+          swift: isPetty ? "CASH-FLOAT" : "BDO-PESONET",
+          nationalId: "****8892",
+          netPay: effectiveAmount,
+          token,
+          department: capCheck.department,
+          voucherNo: receiptNo,
+          purpose: params.purpose,
+          timestamp: dateStr,
+          status: "APPROVED_AND_DISBURSED",
+        };
+        localStorage.setItem(STORAGE_KEYS.DISBURSEMENTS, JSON.stringify([disbRow, ...storedDisbs]));
+      } catch (e) {}
+
+      // 5. Post Balanced Multi-Leg General Ledger Journal Entry
+      const debitCode = (params.glDebitAccount || capCheck.glAccountCode || "5010").substring(0, 4);
+      const creditCode = isPetty ? "1010" : "1030";
+
+      this.postJournalEntry({
+        sourceModule: params.sourceModule,
+        ref: receiptNo,
+        memo: `Disbursement: ${params.payee} - ${params.purpose} (Allocated: ${params.allocatedCostCenter})`,
+        lines: [
+          {
+            accountCode: debitCode,
+            accountName: params.glDebitAccount || capCheck.glAccountName,
+            debit: effectiveAmount,
+            credit: 0,
+            memo: `Allocated to ${params.allocatedCostCenter} (${params.allocationCategory})`,
+          },
+          {
+            accountCode: creditCode,
+            accountName: isPetty ? "1010 - Front Desk / Petty Cash Float" : "1030 - Operating Bank Account - BDO Primary",
+            debit: 0,
+            credit: effectiveAmount,
+            memo: `Deducted from ${isPetty ? "Petty Cash Float" : "BDO Operating Account"} (Budget Cap Remaining: ₱${newReceipt.budgetCapRemaining.toLocaleString()})`,
+          },
+        ],
+      });
+
+      // 6. Submit Governance Record
+      const approvalReq = {
+        id: `REQ-${Math.floor(200 + Math.random() * 800)}`,
+        actionType: "APPROVE_DISBURSEMENT_RECEIPT",
+        requestedBy: params.requestedBy,
+        timestamp: dateStr,
+        module: params.sourceModule,
+        title: `Disbursement Voucher [${receiptNo}]: ${params.payee} (₱${effectiveAmount.toLocaleString()})`,
+        amount: effectiveAmount,
+        payload: newReceipt,
+        impactSummary: `Budget allocated to ${params.allocatedCostCenter}. Deducted from ${capCheck.department} Budget Cap (Remaining: ₱${newReceipt.budgetCapRemaining.toLocaleString()}). Liquidity deducted from ${isPetty ? "Petty Cash Float" : "Operating Bank BDO"}.`,
+        status: "APPROVED" as const,
+        currentStage: "FINAL_APPROVED" as const,
+        superAdminApprovedBy: "Super Administrator",
+        superAdminApprovedAt: dateStr,
+        superAdminNotes: `Disbursement verified. Budget cap enforced (${newReceipt.capUtilizationPct}% cap utilized). Receipt ${receiptNo} issued.`,
+      };
+      try {
+        const apprs = JSON.parse(localStorage.getItem(STORAGE_KEYS.APPROVALS) || "[]");
+        localStorage.setItem(STORAGE_KEYS.APPROVALS, JSON.stringify([approvalReq, ...apprs]));
+      } catch (e) {}
+
+      // 7. Audit Trail
+      this.logAudit({
+        action: "INVOICE_DISBURSEMENT_WITH_RECEIPT",
+        module: "Disbursement Management",
+        description: `Subsystem ${params.sourceModule} invoiced disbursement [${receiptNo}] for ${params.payee} of ₱${effectiveAmount.toLocaleString()} (Budget Cap: ${capCheck.capUtilizationPct}%, Deducted from ${isPetty ? "Petty Cash" : "Operating Bank"}).`,
+        status: "SUCCESS",
+        newState: newReceipt,
+      });
+
+      // 8. Record Transmission Packet
+      this.recordPacket({
+        id: `PKT-${Date.now().toString().slice(-6)}`,
+        sourceModule: params.sourceModule,
+        targetSystem: "Disbursements",
+        action: "INVOICE_DISBURSEMENT_WITH_RECEIPT",
+        timestamp: new Date().toLocaleTimeString(),
+        amount: effectiveAmount,
+        status: "SYNCHRONIZED",
+        summary: `Disbursement invoiced with 3-stage receipt ${receiptNo}: ₱${effectiveAmount.toLocaleString()} deducted from ${capCheck.department} budget cap & treasury.`,
+        payload: newReceipt,
+      });
+
+      return {
+        success: true,
+        receipt: newReceipt,
+        wasCapped,
+        cappedAmount: effectiveAmount,
+        originalRequested: params.requestedAmount,
+        remainingCap: newReceipt.budgetCapRemaining,
+        message: wasCapped
+          ? `Budget cap reached! Requested ₱${params.requestedAmount.toLocaleString()} was capped to available limit of ₱${effectiveAmount.toLocaleString()}. Receipt ${receiptNo} created.`
+          : `Disbursement invoice approved! Official receipt ${receiptNo} generated (₱${effectiveAmount.toLocaleString()}). Budget cap and treasury updated.`,
+      };
+    } catch (e) {
+      console.error("Failed to submit disbursement invoice with receipt", e);
+      return { success: false, error: String(e) };
+    }
+  },
+
+  // Simulate Incoming Accounts Receivable (from Hotel-MNGT / Resto-MNGT)
+  simulateIncomingAR(params: {
+    sourceModule: "Hotel-MNGT" | "Resto-MNGT";
+    customer: string;
+    amount: number;
+    category: string;
+    terms?: string;
+    paymentMethod?: string;
+    dailyPenaltyRatePercent?: number;
+    notes?: string;
+    requestedBy?: string;
+  }) {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.AR);
+      const invoices = stored ? JSON.parse(stored) : [];
+      const invoiceId = `INV-AR-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+      const today = new Date().toISOString().split("T")[0];
+      const days = (params.terms || "").includes("15") ? 15 : (params.terms || "").includes("60") ? 60 : 30;
+      const dueDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+      const newInvoice = {
+        id: invoiceId,
+        customer: params.customer,
+        invoiceDate: today,
+        dueDate,
+        amount: params.amount,
+        paidAmount: 0,
+        status: "Unpaid",
+        category: params.category,
+        paymentTerms: params.terms || "Net 30 Days",
+        paymentMethod: params.paymentMethod || "Corporate City Ledger Billing",
+        dailyPenaltyRatePercent: params.dailyPenaltyRatePercent ?? 0.1,
+        refNo: `REF-${invoiceId}`,
+        tin: "201-984-112-000",
+        notes: params.notes || `Simulated corporate receivable incoming from ${params.sourceModule}`,
+      };
+
+      const updated = [newInvoice, ...invoices];
+      localStorage.setItem(STORAGE_KEYS.AR, JSON.stringify(updated));
+
+      // Sync into APAR schedule
+      try {
+        const aparStored = localStorage.getItem(STORAGE_KEYS.APAR);
+        const apar = aparStored ? JSON.parse(aparStored) : [];
+        const aparItem = {
+          id: invoiceId,
+          entityName: params.customer,
+          tin: "201-984-112-000",
+          type: "AR",
+          bankDetails: params.paymentMethod || "Corporate City Ledger Billing",
+          amount: params.amount,
+          status: "Unpaid",
+          category: params.category,
+        };
+        localStorage.setItem(STORAGE_KEYS.APAR, JSON.stringify([aparItem, ...apar]));
+      } catch (e) {}
+
+      // Submit Governance Approval Request to FMS (Stage 1 Admin -> Stage 2 Super Admin)
+      const approvalReq = this.submitApprovalRequest({
+        sourceModule: params.sourceModule,
+        actionType: "CREATE_AR_INVOICE",
+        title: `Incoming AR Invoice [${invoiceId}]: ${params.customer}`,
+        amount: params.amount,
+        impactSummary: `Corporate client invoice issued by ${params.sourceModule} (${params.category}) for ₱${params.amount.toLocaleString()} with ${newInvoice.paymentTerms}. Requires Stage 1 Admin verification then Super Admin signoff.`,
+        payload: newInvoice,
+        requestedBy: params.requestedBy || `${params.sourceModule} Revenue Officer`,
+      });
+
+      // Audit Trail
+      this.logAudit({
+        action: "SIMULATE_INCOMING_AR",
+        module: "Accounts Receivable",
+        description: `${params.sourceModule} simulated incoming AR invoice ${invoiceId} for ${params.customer} (₱${params.amount.toLocaleString()})`,
+        status: "PENDING_APPROVAL",
+        newState: newInvoice,
+      });
+
+      // Transmission Packet
+      this.recordPacket({
+        id: `PKT-${Date.now().toString().slice(-6)}`,
+        sourceModule: params.sourceModule,
+        targetSystem: "Accounts Receivable",
+        action: "SIMULATE_INCOMING_AR",
+        timestamp: new Date().toLocaleTimeString(),
+        amount: params.amount,
+        status: "QUEUED_FOR_APPROVAL",
+        summary: `Incoming AR ${invoiceId} generated for ${params.customer} (₱${params.amount.toLocaleString()}). Dispatched to FMS Approval Queue.`,
+        payload: newInvoice,
+      });
+
+      return { success: true, invoice: newInvoice, requestId: approvalReq.requestId };
+    } catch (e) {
+      console.error("Failed to simulate incoming AR", e);
+      return { success: false, error: String(e) };
     }
   },
 };

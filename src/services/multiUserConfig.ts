@@ -18,23 +18,25 @@ export interface SystemUserAccount {
   createdAt: string;
   lastLogin?: string;
   avatarBg?: string;
+  isMainSuperAdmin?: boolean;
 }
 
 export const ENTERPRISE_MULTI_USERS: SystemUserAccount[] = [
-  // 1. Super Administrator (Full Master Control)
+  // 1. Main Super Administrator (Full Master Control & Authority Over All Accounts)
   {
     id: "USR-001",
-    name: "Lorenz (Super Admin)",
+    name: "Lorenz Gaum",
     email: "Lorenz@horeca.com",
     googleAccount: "gaumlorenz@gmail.com",
     password: "230117482",
     role: "superadmin",
     status: "active",
     department: "Executive Treasury & Governance",
-    title: "Chief Financial Officer & Super Admin",
+    title: "Main Super Admin & Chief Financial Officer",
     subsystemsAllowed: ["finance", "hr_payroll", "hotel_mngt", "resto_mngt", "supply_chain", "fleet_ops"],
     createdAt: "2026-08-19",
-    avatarBg: "from-amber-600 to-amber-800"
+    avatarBg: "from-amber-600 to-amber-800",
+    isMainSuperAdmin: true
   },
 
   // 2. Standard Administrator (Finance Controller)

@@ -85,14 +85,15 @@ export default function IntegratedFinancialSystem({
   const INITIAL_ACCOUNTS: SystemUser[] = [
     {
       id: "USR-001",
-      name: "Lorenz (Super Admin)",
+      name: "Lorenz Gaum",
       email: "Lorenz@horeca.com",
       googleAccount: "gaumlorenz@gmail.com",
       password: "230117482",
       role: "superadmin",
       status: "active",
       createdAt: "2026-08-19",
-      otpVerified: true
+      otpVerified: true,
+      isMainSuperAdmin: true
     },
     {
       id: "USR-002",
@@ -177,17 +178,27 @@ export default function IntegratedFinancialSystem({
     try {
       const stored = localStorage.getItem("horeca_system_users");
       if (stored) {
-        const parsed = JSON.parse(stored);
+        let parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          // Guarantee Lorenz Gaum is configured as Main Super Admin
+          parsed = parsed.map((u: any) => {
+            if (u.email?.toLowerCase() === "lorenz@horeca.com") {
+              return {
+                ...u,
+                name: "Lorenz Gaum",
+                role: "superadmin",
+                isMainSuperAdmin: true,
+              };
+            }
+            return u;
+          });
+
           // Merge initial accounts with stored accounts so new defaults are available
           const existingEmails = new Set(parsed.map((u: any) => u.email.toLowerCase()));
           const missing = INITIAL_ACCOUNTS.filter((acc) => !existingEmails.has(acc.email.toLowerCase()));
-          if (missing.length > 0) {
-            const merged = [...parsed, ...missing];
-            localStorage.setItem("horeca_system_users", JSON.stringify(merged));
-            return merged;
-          }
-          return parsed;
+          const merged = missing.length > 0 ? [...parsed, ...missing] : parsed;
+          localStorage.setItem("horeca_system_users", JSON.stringify(merged));
+          return merged;
         }
       }
     } catch (e) {
@@ -211,7 +222,14 @@ export default function IntegratedFinancialSystem({
           sessionStorage.removeItem("horeca_last_activity");
           return null;
         }
-        return JSON.parse(savedUser);
+        const userObj = JSON.parse(savedUser);
+        if (userObj.email?.toLowerCase() === "lorenz@horeca.com") {
+          userObj.name = "Lorenz Gaum";
+          userObj.role = "superadmin";
+          userObj.isMainSuperAdmin = true;
+          sessionStorage.setItem("horeca_current_user", JSON.stringify(userObj));
+        }
+        return userObj;
       }
     } catch (e) {
       console.error("Failed to restore session from sessionStorage", e);
@@ -733,17 +751,61 @@ export default function IntegratedFinancialSystem({
 
   const handleDeleteUser = (userId: string) => {
     const target = systemUsers.find((u) => u.id === userId);
-    if (target && target.role !== "superadmin") {
-      setSystemUsers((prev) => prev.filter((u) => u.id !== userId));
-      showToast(`User account ${target.name} removed`, "warning");
-      logAuditEvent({
-        action: "DELETE_USER_ACCOUNT",
-        module: "Security & User Management",
-        description: `Super Admin removed user account ${target.email}`,
-        previousState: target,
-        newState: null
-      });
+    if (!target) return;
+
+    const isCurrentMainSuperAdmin = currentUser?.email?.toLowerCase() === "lorenz@horeca.com";
+
+    // Protection: Main Super Admin Lorenz Gaum account cannot be deleted
+    if (target.email?.toLowerCase() === "lorenz@horeca.com") {
+      showToast("The Main Super Admin (Lorenz Gaum) account cannot be deleted.", "warning");
+      return;
     }
+
+    // Only Main Super Admin Lorenz Gaum can delete other Super Administrator accounts
+    if (target.role === "superadmin" && !isCurrentMainSuperAdmin) {
+      showToast("Permission Denied: Only Main Super Admin Lorenz Gaum can delete Super Administrator accounts.", "warning");
+      return;
+    }
+
+    setSystemUsers((prev) => prev.filter((u) => u.id !== userId));
+    showToast(`User account ${target.name} (${target.role}) deleted successfully`, "warning");
+    logAuditEvent({
+      action: "DELETE_USER_ACCOUNT",
+      module: "Security & User Management",
+      description: `${isCurrentMainSuperAdmin ? "Main Super Admin Lorenz Gaum" : "Super Admin"} deleted user account ${target.email} (${target.role})`,
+      previousState: target,
+      newState: null
+    });
+  };
+
+  const handleEditUser = (updatedUser: SystemUser) => {
+    const isCurrentMainSuperAdmin = currentUser?.email?.toLowerCase() === "lorenz@horeca.com";
+    const target = systemUsers.find((u) => u.id === updatedUser.id);
+    if (!target) return;
+
+    // Protection: Only Lorenz Gaum himself can edit his account
+    if (target.email?.toLowerCase() === "lorenz@horeca.com" && !isCurrentMainSuperAdmin) {
+      showToast("Permission Denied: Only Lorenz Gaum himself can edit the Main Super Admin account.", "warning");
+      return;
+    }
+
+    // Protection: Non-main superadmins cannot edit other superadmins
+    if (target.role === "superadmin" && !isCurrentMainSuperAdmin && target.id !== currentUser?.id) {
+      showToast("Permission Denied: Only Main Super Admin Lorenz Gaum can edit other Super Administrator accounts.", "warning");
+      return;
+    }
+
+    setSystemUsers((prev) =>
+      prev.map((u) => (u.id === updatedUser.id ? { ...u, ...updatedUser } : u))
+    );
+    showToast(`User account ${updatedUser.name} updated successfully!`, "success");
+    logAuditEvent({
+      action: "EDIT_USER_ACCOUNT",
+      module: "Security & User Management",
+      description: `${isCurrentMainSuperAdmin ? "Main Super Admin Lorenz Gaum" : "Super Admin"} updated credentials for ${updatedUser.email} (Role: ${updatedUser.role})`,
+      previousState: target,
+      newState: updatedUser
+    });
   };
 
   const handleUpdateUnmaskPassword = (newPass: string) => {
@@ -2011,7 +2073,7 @@ export default function IntegratedFinancialSystem({
       const netPayable = amount - ewt;
       const invoiceId = payload.id || `INV-SC-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      const newInv = {
+      const newInv: SupplierInvoice = {
         id: invoiceId,
         vendor: payload.vendor || payload.entityName || "Purveyor Vendor",
         tin: payload.tin || "123-456-789-000",
@@ -2019,13 +2081,13 @@ export default function IntegratedFinancialSystem({
         dueDate: payload.dueDate || new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
         amount: netPayable,
         status: "Unpaid" as const,
-        category: payload.category || "Food & Beverage Ingredients",
-        paymentTerms: payload.paymentTerms || "Net 30 Days",
-        matchStatus: "Verified (PO+DR+Inv)",
-        poNumber: payload.poNumber || `PO-2026-${Math.floor(100 + Math.random() * 900)}`,
+        category: (payload.category as any) || "F&B Fresh Goods",
+        terms: "Net 30",
+        poRef: payload.poNumber || `PO-2026-${Math.floor(100 + Math.random() * 900)}`,
+        drRef: `DR-2026-${Math.floor(100 + Math.random() * 900)}`,
+        threeWayMatch: "Verified",
+        dailyPenaltyRatePercent: 0.05,
         bankDetails: payload.bankDetails || "BDO Unibank 0019-4829-1029",
-        ewtRate: 0.01,
-        ewtAmount: ewt
       };
       setApInvoices((prev) => [newInv, ...prev]);
       setApArInvoices((prev) => [
@@ -4748,6 +4810,7 @@ export default function IntegratedFinancialSystem({
               users={systemUsers}
               currentUser={currentUser}
               onAddUser={handleAddUser}
+              onEditUser={handleEditUser}
               onToggleUserStatus={handleToggleUserStatus}
               onResetUserOtp={handleResetUserOtp}
               onDeleteUser={handleDeleteUser}

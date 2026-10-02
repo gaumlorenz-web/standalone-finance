@@ -183,7 +183,6 @@ export default function AccountsReceivable({
   const [selectedStatus, setSelectedStatus] = useState<string>("All");
   const [isNewInvoiceOpen, setIsNewInvoiceOpen] = useState(false);
   const [isCollectAllModalOpen, setIsCollectAllModalOpen] = useState(false);
-  const [isSimulateModalOpen, setIsSimulateModalOpen] = useState(false);
 
   // Batch Collect All Form State
   const [batchTargetAccount, setBatchTargetAccount] = useState("1030 - Operating Bank Account - BDO Primary");
@@ -446,44 +445,6 @@ export default function AccountsReceivable({
     setIsCollectAllModalOpen(false);
   };
 
-  const handleQuickSimulateAR = (preset: {
-    customer: string;
-    category: CustomerInvoice["category"];
-    amount: number;
-    terms: CustomerInvoice["terms"];
-    paymentMethod: CustomerInvoice["paymentMethod"];
-    notes: string;
-  }) => {
-    const invoiceDateObj = new Date(CURRENT_SYSTEM_DATE);
-    const daysToAdd = preset.terms === "Immediate" ? 0 : preset.terms === "Net 15" ? 15 : 30;
-    invoiceDateObj.setDate(invoiceDateObj.getDate() + daysToAdd);
-    const calculatedDueDate = invoiceDateObj.toISOString().split("T")[0];
-
-    const newInv: CustomerInvoice = {
-      id: `AR-2026-${Math.floor(200 + Math.random() * 800)}`,
-      customer: preset.customer,
-      tin: "990-124-781-000",
-      category: preset.category,
-      refNo: `SIM-${Math.floor(10000 + Math.random() * 90000)}`,
-      invoiceDate: CURRENT_SYSTEM_DATE,
-      terms: preset.terms,
-      dueDate: calculatedDueDate,
-      amount: preset.amount,
-      paidAmount: 0,
-      paymentMethod: preset.paymentMethod,
-      status: "Unpaid",
-      dailyPenaltyRatePercent: 0.05,
-      notes: preset.notes
-    };
-
-    if (onAddInvoice) {
-      onAddInvoice(newInv);
-    } else {
-      setInternalInvoices((prev) => [newInv, ...prev]);
-    }
-    setIsSimulateModalOpen(false);
-  };
-
   const handleCreateInvoice = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCustomer || !newAmount) return;
@@ -596,17 +557,6 @@ export default function AccountsReceivable({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ExportButton getExportData={getExportData} buttonLabel="Export AR Ledger" />
-
-          {/* SIMULATE INCOMING AR BUTTON (Requirement 3) */}
-          <button
-            type="button"
-            onClick={() => setIsSimulateModalOpen(true)}
-            className="bg-emerald-50 hover:bg-emerald-100 text-[#157A4D] border border-emerald-300 px-3 py-2 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
-            title="Simulate incoming customer receivable to see reflection across modules"
-          >
-            <TrendingUp className="h-4 w-4 text-[#157A4D]" />
-            <span>Simulate Incoming AR</span>
-          </button>
 
           <button
             type="button"
@@ -1523,158 +1473,6 @@ export default function AccountsReceivable({
         </div>
       )}
 
-      {/* SIMULATE INCOMING AR MODAL (Requirement 3) */}
-      {isSimulateModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-2xl p-6 space-y-5 max-w-xl w-full border border-[#DFE1DB] shadow-2xl my-8">
-            <div className="flex justify-between items-center border-b border-[#DFE1DB] pb-3.5">
-              <div className="flex items-center gap-2.5">
-                <div className="h-9 w-9 rounded-xl bg-emerald-50 flex items-center justify-center border border-emerald-200">
-                  <TrendingUp className="h-5 w-5 text-[#157A4D]" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-base font-['Archivo'] text-[#1A1D21]">
-                    Simulate Incoming Accounts Receivable (AR)
-                  </h3>
-                  <p className="text-xs text-[#5C636F]">
-                    Quickly simulate receiving an AR invoice to test real-time cross-module synchronization
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsSimulateModalOpen(false)}
-                className="text-[#5C636F] hover:text-[#1A1D21] p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Simulation Presets */}
-            <div className="space-y-2.5">
-              <span className="text-xs font-bold font-['IBM_Plex_Mono'] text-[#5C636F]">
-                SELECT SIMULATION PRESET SCENARIO:
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleQuickSimulateAR({
-                      customer: "Shangri-La Presidential Suite Checkout",
-                      category: "Hotel Guest Folio",
-                      amount: 48500,
-                      terms: "Immediate",
-                      paymentMethod: "Credit Card",
-                      notes: "4 nights presidential suite stay, laundry & room service charges"
-                    })
-                  }
-                  className="text-left p-3 rounded-xl border border-[#DFE1DB] hover:border-[#157A4D] hover:bg-emerald-50/50 transition-all cursor-pointer group"
-                >
-                  <div className="font-bold text-xs text-[#1A1D21] group-hover:text-[#157A4D]">
-                    🏨 Hotel Guest Checkout
-                  </div>
-                  <div className="text-sm font-bold font-['IBM_Plex_Mono'] text-[#157A4D] mt-1">
-                    {maskCurrency(48500)}
-                  </div>
-                  <div className="text-[10px] text-[#5C636F] mt-0.5">Category: Hotel Guest Folio (Immediate)</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleQuickSimulateAR({
-                      customer: "Philippine Airlines Crew Accommodation Folio",
-                      category: "Corporate City Ledger",
-                      amount: 142000,
-                      terms: "Net 30",
-                      paymentMethod: "Bank Transfer",
-                      notes: "Contracted airline flight crew 18 room-nights billing block"
-                    })
-                  }
-                  className="text-left p-3 rounded-xl border border-[#DFE1DB] hover:border-[#157A4D] hover:bg-emerald-50/50 transition-all cursor-pointer group"
-                >
-                  <div className="font-bold text-xs text-[#1A1D21] group-hover:text-[#157A4D]">
-                    🏢 Corporate City Ledger
-                  </div>
-                  <div className="text-sm font-bold font-['IBM_Plex_Mono'] text-[#157A4D] mt-1">
-                    {maskCurrency(142000)}
-                  </div>
-                  <div className="text-[10px] text-[#5C636F] mt-0.5">Category: Corporate City Ledger (Net 30)</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleQuickSimulateAR({
-                      customer: "Manila Bankers Association Gala Dinner",
-                      category: "Banquet & Catering",
-                      amount: 85000,
-                      terms: "Net 15",
-                      paymentMethod: "Bank Transfer",
-                      notes: "Grand Ballroom catering 150 pax dinner buffet & wine pairing"
-                    })
-                  }
-                  className="text-left p-3 rounded-xl border border-[#DFE1DB] hover:border-[#157A4D] hover:bg-emerald-50/50 transition-all cursor-pointer group"
-                >
-                  <div className="font-bold text-xs text-[#1A1D21] group-hover:text-[#157A4D]">
-                    🍽️ Banquet &amp; Catering
-                  </div>
-                  <div className="text-sm font-bold font-['IBM_Plex_Mono'] text-[#157A4D] mt-1">
-                    {maskCurrency(85000)}
-                  </div>
-                  <div className="text-[10px] text-[#5C636F] mt-0.5">Category: Banquet &amp; Catering (Net 15)</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleQuickSimulateAR({
-                      customer: "FastTrack Cold-Chain Logistics Freight",
-                      category: "Fleet Logistics Service",
-                      amount: 38000,
-                      terms: "Net 15",
-                      paymentMethod: "Bank Transfer",
-                      notes: "Refrigerated seafood transfer from subic bay port to central kitchen"
-                    })
-                  }
-                  className="text-left p-3 rounded-xl border border-[#DFE1DB] hover:border-[#157A4D] hover:bg-emerald-50/50 transition-all cursor-pointer group"
-                >
-                  <div className="font-bold text-xs text-[#1A1D21] group-hover:text-[#157A4D]">
-                    🚐 Fleet Logistics Cargo
-                  </div>
-                  <div className="text-sm font-bold font-['IBM_Plex_Mono'] text-[#157A4D] mt-1">
-                    {maskCurrency(38000)}
-                  </div>
-                  <div className="text-[10px] text-[#5C636F] mt-0.5">Category: Fleet Logistics Service (Net 15)</div>
-                </button>
-              </div>
-            </div>
-
-            {/* Impact Explanation Box */}
-            <div className="p-3.5 bg-[#F1F1ED] rounded-xl border border-[#DFE1DB] space-y-2 text-xs">
-              <span className="font-bold font-['IBM_Plex_Mono'] text-[#1A1D21] block">
-                How this simulates across connected modules:
-              </span>
-              <ul className="list-disc list-inside text-[#5C636F] space-y-1 text-[11px]">
-                <li><strong>General Ledger:</strong> Automatically logs Debit to Asset 1210 (City Ledger / AR) and Credit to Revenue 4010.</li>
-                <li><strong>Collections:</strong> Adds the customer invoice to the collection pipeline.</li>
-                <li><strong>Executive Dashboard:</strong> Updates total receivables due, aging buckets, and income forecasts.</li>
-                <li><strong>Cash Management:</strong> When "Collect All" is triggered, funds are converted into liquid operating bank or till cash assets.</li>
-              </ul>
-            </div>
-
-            <div className="flex justify-end pt-2 border-t border-[#DFE1DB]">
-              <button
-                type="button"
-                onClick={() => setIsSimulateModalOpen(false)}
-                className="px-4 py-2 border border-[#DFE1DB] rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

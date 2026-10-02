@@ -17,9 +17,11 @@ import {
   ChevronRight,
   Calculator,
   ShieldCheck,
-  UserCheck
+  UserCheck,
+  FileText
 } from "lucide-react";
 import { fmsBridge, FmsPacket } from "../../src/services/fmsBridge";
+import SubsystemDisbursementSection from "../../src/components/SubsystemDisbursementSection";
 
 interface EmployeePayroll {
   id: string;
@@ -154,7 +156,7 @@ interface SimpleDashboardProps {
 export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProps) {
   const [staff] = useState<EmployeePayroll[]>(INITIAL_STAFF);
   const [loans, setLoans] = useState<EmployeeLoan[]>(INITIAL_LOANS);
-  const [activeTab, setActiveTab] = useState<"payroll" | "service_charge" | "loans">("payroll");
+  const [activeTab, setActiveTab] = useState<"payroll" | "service_charge" | "loans" | "disbursements">("payroll");
 
   // Service Charge (85%) Pool state
   const [posGrossServiceCharge, setPosGrossServiceCharge] = useState<number>(180000);
@@ -550,6 +552,18 @@ export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProp
             <UserCheck className="h-3.5 w-3.5" />
             <span>3. Employee Loan &amp; Advance Deductions</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab("disbursements")}
+            className={`px-4 py-2.5 text-xs font-bold font-['IBM_Plex_Mono'] rounded-t-xl transition-all cursor-pointer flex items-center gap-2 ${
+              activeTab === "disbursements"
+                ? "bg-white text-emerald-700 border-t-2 border-emerald-600 shadow-xs"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            <span>4. Invoiced Disbursements &amp; Receipts</span>
+          </button>
         </div>
 
         {/* TAB 1: PAYROLL DISBURSEMENT REQUESTS */}
@@ -814,6 +828,50 @@ export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProp
               </table>
             </div>
           </div>
+        )}
+
+        {/* TAB 4: INVOICED DISBURSEMENTS & ALLOCATION RECEIPTS (BUDGET CAPPED) */}
+        {activeTab === "disbursements" && (
+          <SubsystemDisbursementSection
+            sourceModule="HR-Payroll"
+            departmentName="HRMS Payroll"
+            defaultCostCenter="HR Operations & Statutory Staff Compensation"
+            defaultCategory="Staff Compensation & Benefits"
+            defaultGlDebitAccount="5110 - Executive, Service & Banquet Payroll"
+            requesterName="Janine Hular (HR & Payroll Director)"
+            onNavigateToFms={onNavigateToFms}
+            presets={[
+              {
+                payee: "BDO Automated Payroll Direct-Credit Facility",
+                purpose: "Bi-Monthly Staff Salaries & Wages Disbursement Run (28 Staff)",
+                amount: 165000,
+                allocationItems: [
+                  { item: "Front Desk & Hotel Rooms Basic Compensation", category: "Operations Wages", amount: 65000, percentage: 39 },
+                  { item: "Culinary & Kitchen Service Crew Basic Wages", category: "F&B Kitchen Wages", amount: 62000, percentage: 38 },
+                  { item: "Logistics, Shuttles & Maintenance Salaries", category: "Fleet Wages", amount: 38000, percentage: 23 }
+                ]
+              },
+              {
+                payee: "Statutory SSS, PhilHealth & Pag-IBIG Remittance Portal",
+                purpose: "Monthly Employer & Employee Government Statutory Contributions",
+                amount: 54000,
+                allocationItems: [
+                  { item: "Social Security System (SSS) Employer & Employee Pool", category: "Statutory SSS", amount: 28000, percentage: 52 },
+                  { item: "Philippine Health Insurance Corp (PhilHealth) Share", category: "Statutory PhilHealth", amount: 16000, percentage: 30 },
+                  { item: "Home Development Mutual Fund (Pag-IBIG Fund)", category: "Statutory Pag-IBIG", amount: 10000, percentage: 18 }
+                ]
+              },
+              {
+                payee: "Weekend Banquet & Holiday Overtime Compensation Pool",
+                purpose: "Holiday Differential & High-Occupancy Overtime Wage Payouts",
+                amount: 38000,
+                allocationItems: [
+                  { item: "Executive Sous Chef & Line Cook Holiday Differential", category: "Culinary Overtime", amount: 20000, percentage: 53 },
+                  { item: "Front Desk Night Shift & Weekend Bellman Differential", category: "Front Office Overtime", amount: 18000, percentage: 47 }
+                ]
+              }
+            ]}
+          />
         )}
 
         {/* FMS Real-Time Transmission Bus & Audit Status */}

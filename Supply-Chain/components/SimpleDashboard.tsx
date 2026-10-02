@@ -19,6 +19,7 @@ import {
   PackageCheck
 } from "lucide-react";
 import { fmsBridge, FmsPacket } from "../../src/services/fmsBridge";
+import SubsystemDisbursementSection from "../../src/components/SubsystemDisbursementSection";
 
 interface PurveyorInvoiceItem {
   id: string;
@@ -85,7 +86,7 @@ interface SimpleDashboardProps {
 }
 
 export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProps) {
-  const [activeTab, setActiveTab] = useState<"purveyor_ap" | "bir_2307" | "inventory_adjustment">("purveyor_ap");
+  const [activeTab, setActiveTab] = useState<"purveyor_ap" | "bir_2307" | "inventory_adjustment" | "disbursements">("purveyor_ap");
   const [invoices, setInvoices] = useState<PurveyorInvoiceItem[]>(INITIAL_PURVEYOR_INVOICES);
 
   // TAB 1: New Purveyor Invoice Form State
@@ -475,6 +476,18 @@ export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProp
             <Boxes className="h-3.5 w-3.5" />
             <span>3. Inventory Asset Adjustment</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab("disbursements")}
+            className={`px-4 py-2.5 text-xs font-bold font-['IBM_Plex_Mono'] rounded-t-xl transition-all cursor-pointer flex items-center gap-2 ${
+              activeTab === "disbursements"
+                ? "bg-white text-amber-700 border-t-2 border-amber-600 shadow-xs"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            <span>4. Invoiced Disbursements &amp; Receipts</span>
+          </button>
         </div>
 
         {/* TAB 1: 30-DAY PURVEYOR INVOICE LOGGING */}
@@ -771,6 +784,49 @@ export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProp
               )}
             </div>
           </div>
+        )}
+
+        {/* TAB 4: INVOICED DISBURSEMENTS & ALLOCATION RECEIPTS (BUDGET CAPPED) */}
+        {activeTab === "disbursements" && (
+          <SubsystemDisbursementSection
+            sourceModule="Supply-Chain"
+            departmentName="Supply Chain"
+            defaultCostCenter="Supply Chain & Central Warehousing"
+            defaultCategory="Purveyor Supplies & Packaging"
+            defaultGlDebitAccount="5030 - Warehouse Logistics, Cold Storage & Linen"
+            requesterName="Jordan Tiu (Procurement & Purveyor Controller)"
+            onNavigateToFms={onNavigateToFms}
+            presets={[
+              {
+                payee: "HighSeas Meat & Seafood Cold Freight Settlement",
+                purpose: "Net Supplier Settlement after 1% Statutory EWT Deduction",
+                amount: 118800,
+                allocationItems: [
+                  { item: "Frozen Meat Cuts & Ribeye Whole Primals", category: "Raw Meats", amount: 78800, percentage: 66 },
+                  { item: "Cold Storage Temperature Log Certification", category: "Inspection", amount: 20000, percentage: 17 },
+                  { item: "Cryo Freight Logistics & Insulated Transport", category: "Freight Handling", amount: 20000, percentage: 17 }
+                ]
+              },
+              {
+                payee: "Global Prime Dairy & Cheeses Delivery",
+                purpose: "Imported Butter, European Cheeses & Dairy Cold Cuts Supply",
+                amount: 64350,
+                allocationItems: [
+                  { item: "Unsalted Butter & Heavy Whipping Creams (100L)", category: "Dairy Goods", amount: 38350, percentage: 60 },
+                  { item: "Gouda, Emmental & Parmigiano Reggiano Wheels", category: "Aged Cheeses", amount: 26000, percentage: 40 }
+                ]
+              },
+              {
+                payee: "EcoSan Industrial Chemicals & Warehousing Supplies",
+                purpose: "Housekeeping & Dishwashing Industrial Chemicals and Vacuum Packaging",
+                amount: 35000,
+                allocationItems: [
+                  { item: "Sanitizing Chlorinated Rinse Solutions & Detergents", category: "Cleaning Chemicals", amount: 20000, percentage: 57 },
+                  { item: "Heavy Duty Multi-Ply Vacuum Seal Bags (5000 units)", category: "Packaging Materials", amount: 15000, percentage: 43 }
+                ]
+              }
+            ]}
+          />
         )}
 
         {/* FMS Transmission Logs */}

@@ -15,9 +15,11 @@ import {
   Zap,
   Calendar,
   Building2,
-  FileCheck
+  FileCheck,
+  FileText
 } from "lucide-react";
 import { fmsBridge, FmsPacket } from "../../src/services/fmsBridge";
+import SubsystemDisbursementSection from "../../src/components/SubsystemDisbursementSection";
 
 interface VehicleLogItem {
   id: string;
@@ -106,7 +108,7 @@ interface SimpleDashboardProps {
 }
 
 export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProps) {
-  const [activeTab, setActiveTab] = useState<"fuel_toll" | "maintenance" | "depreciation">("fuel_toll");
+  const [activeTab, setActiveTab] = useState<"fuel_toll" | "maintenance" | "depreciation" | "disbursements">("fuel_toll");
   const [fleetLogs] = useState<VehicleLogItem[]>(INITIAL_FLEET_LOGS);
   const [workOrders, setWorkOrders] = useState<MaintenanceWorkOrder[]>(INITIAL_WORK_ORDERS);
 
@@ -419,6 +421,18 @@ export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProp
             <Building2 className="h-3.5 w-3.5" />
             <span>3. Asset Depreciation &amp; Resto Chargebacks</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab("disbursements")}
+            className={`px-4 py-2.5 text-xs font-bold font-['IBM_Plex_Mono'] rounded-t-xl transition-all cursor-pointer flex items-center gap-2 ${
+              activeTab === "disbursements"
+                ? "bg-white text-emerald-700 border-t-2 border-emerald-600 shadow-xs"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            <span>4. Invoiced Disbursements &amp; Receipts</span>
+          </button>
         </div>
 
         {/* TAB 1: FUEL & TOLL EXPENSE AUTOMATION */}
@@ -658,6 +672,47 @@ export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProp
               </div>
             </div>
           </div>
+        )}
+
+        {/* TAB 4: INVOICED DISBURSEMENTS & ALLOCATION RECEIPTS (BUDGET CAPPED) */}
+        {activeTab === "disbursements" && (
+          <SubsystemDisbursementSection
+            sourceModule="FleetOps"
+            departmentName="FleetOps"
+            defaultCostCenter="Transport Dispatch & VIP Shuttle Logistics"
+            defaultCategory="Vehicle Fleet Maintenance & Fuel"
+            defaultGlDebitAccount="5410 - Airport Shuttle Van Fuel, Tolls & Maintenance"
+            requesterName="Lourence Piedad (Fleet Operations Manager)"
+            onNavigateToFms={onNavigateToFms}
+            presets={[
+              {
+                payee: "Toyota Pasay Commercial Hub & Truck Care",
+                purpose: "VIP Shuttle Coaster Suspension & Brake Pad Replacement [WO-FLT-904]",
+                amount: 38400,
+                allocationItems: [
+                  { item: "Front Brake Pads & Rotor Resurfacing", category: "Brake Service", amount: 20400, percentage: 53 },
+                  { item: "Heavy Duty Shock Absorber & Suspension Tuning", category: "Suspension", amount: 18000, percentage: 47 }
+                ]
+              },
+              {
+                payee: "Petron Commercial FleetCard Electronic Facility",
+                purpose: "Weekly Bulk Diesel Fuel Top-Up for Hotel & Resto Shuttles",
+                amount: 28000,
+                allocationItems: [
+                  { item: "Diesel Euro 5 Fleet Card Allocation (500L)", category: "Commercial Fuel", amount: 28000, percentage: 100 }
+                ]
+              },
+              {
+                payee: "Autosweep & Easytrip RFID Commercial Tollway Top-up",
+                purpose: "Airport VIP Expressways & SLEX/NLEX Electronic Fleet Tolls",
+                amount: 15000,
+                allocationItems: [
+                  { item: "Skyway Stage 3 & NAIAX VIP Guest Transit Tolls", category: "Expressway Tolls", amount: 10000, percentage: 67 },
+                  { item: "Cavite-Laguna Expressway (CALAX) Logistics Pass", category: "Highway Tolls", amount: 5000, percentage: 33 }
+                ]
+              }
+            ]}
+          />
         )}
 
         {/* FMS Transmission Logs */}

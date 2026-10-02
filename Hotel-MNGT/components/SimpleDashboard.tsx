@@ -16,9 +16,13 @@ import {
   Send,
   Building2,
   RefreshCw,
-  Wallet
+  Wallet,
+  FileSpreadsheet,
+  FileText
 } from "lucide-react";
 import { fmsBridge, FmsPacket } from "../../src/services/fmsBridge";
+import SubsystemDisbursementSection from "../../src/components/SubsystemDisbursementSection";
+import SubsystemIncomingArSection from "../../src/components/SubsystemIncomingArSection";
 
 interface NightAuditItem {
   folioId: string;
@@ -134,7 +138,7 @@ interface SimpleDashboardProps {
 export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProps) {
   const [folios] = useState<NightAuditItem[]>(INITIAL_FOLIOS);
   const [refundClaims, setRefundClaims] = useState<GuestRefundClaim[]>(INITIAL_REFUNDS);
-  const [activeTab, setActiveTab] = useState<"night_audit" | "refunds" | "cash_float">("night_audit");
+  const [activeTab, setActiveTab] = useState<"night_audit" | "refunds" | "cash_float" | "disbursements" | "incoming_ar">("night_audit");
 
   // Front Desk Shift Cash Float State
   const [beginningFloat, setBeginningFloat] = useState<number>(20000);
@@ -464,6 +468,30 @@ export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProp
             <Lock className="h-3.5 w-3.5" />
             <span>3. Front Desk Cash Float Reconciliations</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab("disbursements")}
+            className={`px-4 py-2.5 text-xs font-bold font-['IBM_Plex_Mono'] rounded-t-xl transition-all cursor-pointer flex items-center gap-2 ${
+              activeTab === "disbursements"
+                ? "bg-white text-indigo-700 border-t-2 border-indigo-600 shadow-xs"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            <span>4. Invoiced Disbursements &amp; Receipts</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("incoming_ar")}
+            className={`px-4 py-2.5 text-xs font-bold font-['IBM_Plex_Mono'] rounded-t-xl transition-all cursor-pointer flex items-center gap-2 ${
+              activeTab === "incoming_ar"
+                ? "bg-white text-blue-700 border-t-2 border-blue-600 shadow-xs"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            <span>5. Simulate Incoming AR</span>
+          </button>
         </div>
 
         {/* TAB 1: NIGHT AUDIT & DAILY REVENUE POSTING */}
@@ -735,6 +763,85 @@ export default function SimpleDashboard({ onNavigateToFms }: SimpleDashboardProp
               </div>
             </div>
           </div>
+        )}
+
+        {/* TAB 4: INVOICED DISBURSEMENTS & ALLOCATION RECEIPTS (BUDGET CAPPED) */}
+        {activeTab === "disbursements" && (
+          <SubsystemDisbursementSection
+            sourceModule="Hotel-MNGT"
+            departmentName="Hotel Management"
+            defaultCostCenter="Hotel Operations - Housekeeping & Rooms"
+            defaultCategory="Operational Supplies & Linens"
+            defaultGlDebitAccount="5010 - Hotel Guest Supplies, Amenities & Maintenance"
+            requesterName="Sheila Suede (Hotel Operations Director)"
+            onNavigateToFms={onNavigateToFms}
+            presets={[
+              {
+                payee: "Manila Luxury Linens & Textiles Corp.",
+                purpose: "Guest Suite Egyptian Cotton Bedding & Towel Replacement",
+                amount: 85000,
+                allocationItems: [
+                  { item: "300-Thread Count King Duvet Covers & Pillowcases", category: "Linen Restock", amount: 52000, percentage: 61 },
+                  { item: "Luxury Turkish Cotton Bath Towel Sets", category: "Bath Amenities", amount: 25000, percentage: 29 },
+                  { item: "Express Sanitization & Logistics Freight", category: "Freight Handling", amount: 8000, percentage: 10 }
+                ]
+              },
+              {
+                payee: "Otis Elevator & HVAC Preventive Maintenance",
+                purpose: "Guest Lift Safety Overhaul & Chiller Chilled-Water Recalibration",
+                amount: 42000,
+                allocationItems: [
+                  { item: "Elevator Traction Cable & Governor Safety Check", category: "Safety Maintenance", amount: 26000, percentage: 62 },
+                  { item: "Central Chiller Freon & Compressor Diagnostics", category: "HVAC Engineering", amount: 16000, percentage: 38 }
+                ]
+              },
+              {
+                payee: "Eco-San Luxury Guest Amenities & Toiletries",
+                purpose: "VIP Suite Biodegradable Toiletries & Vanity Kits Restock",
+                amount: 28000,
+                allocationItems: [
+                  { item: "Organic Bamboo Toothbrushes & Shaving Kits", category: "Dry Amenities", amount: 15000, percentage: 54 },
+                  { item: "Essential Oil Shampoos & Body Wash (500ml Dispenser)", category: "Wet Toiletries", amount: 13000, percentage: 46 }
+                ]
+              }
+            ]}
+          />
+        )}
+
+        {/* TAB 5: SIMULATE INCOMING AR (CORPORATE & OTA INVOICING) */}
+        {activeTab === "incoming_ar" && (
+          <SubsystemIncomingArSection
+            sourceModule="Hotel-MNGT"
+            requesterName="Sheila Suede (Hotel Front Office Director)"
+            defaultCategory="Hotel Room Folio / City Ledger"
+            onNavigateToFms={onNavigateToFms}
+            presets={[
+              {
+                customer: "San Miguel Corporation Corporate Events",
+                category: "Corporate Banquet & Event",
+                amount: 185000,
+                terms: "Net 30 Days",
+                paymentMethod: "Corporate City Ledger Billing",
+                notes: "Annual Board of Directors Conference & Grand Ballroom banquet booking"
+              },
+              {
+                customer: "Ayala Land Executive Corporate Stay",
+                category: "Hotel Room Folio / City Ledger",
+                amount: 120000,
+                terms: "Net 30 Days",
+                paymentMethod: "Corporate City Ledger Billing",
+                notes: "14-night corporate accommodation in Presidential Executive Suite 401"
+              },
+              {
+                customer: "Agoda / Booking.com B2B Travel Operations",
+                category: "Travel Agency OTA Billing",
+                amount: 85000,
+                terms: "Net 15 Days",
+                paymentMethod: "Bank Transfer (BDO Unibank)",
+                notes: "Monthly OTA verified corporate bookings & international guest reconciliations"
+              }
+            ]}
+          />
         )}
 
         {/* FMS Transmission Logs */}
