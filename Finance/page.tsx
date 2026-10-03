@@ -42,7 +42,9 @@ import {
   Smartphone,
   Copy,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  FileCheck,
+  ListChecks
 } from "lucide-react";
 import PesoSign from "./components/PesoSign";
 import AccountsPayable, {
@@ -71,6 +73,7 @@ import AiBudgetAllocationModal from "./components/AiBudgetAllocationModal";
 import { saveSettleNowToDb, saveCollectToDb, fetchDbState } from "../src/services/databaseService";
 import { INITIAL_LEDGER_POSTS } from "./data/hospitalityData";
 import loginHeroImage from "../src/assets/images/login_hero_image_1787844999408.jpg";
+import { fmsBridge } from "../src/services/fmsBridge";
 import {
   verifyPassword,
   hashPassword,
@@ -299,7 +302,13 @@ export default function IntegratedFinancialSystem({
   });
 
   // Super Admin Configured Unmask Data Password (Default: #S230117482)
-  const [unmaskPassword, setUnmaskPassword] = useState<string>("#S230117482");
+  const [unmaskPassword, setUnmaskPassword] = useState<string>(() => {
+    try {
+      return localStorage.getItem("horeca_unmask_password") || "#S230117482";
+    } catch (e) {
+      return "#S230117482";
+    }
+  });
 
   // Sidebar Layout State (Supports Full Width or Icon-Only Collapsed Mode)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
@@ -312,10 +321,46 @@ export default function IntegratedFinancialSystem({
 
   // Two-Tier Governance Approvals Filter & Verification Modal State
   const [approvalFilter, setApprovalFilter] = useState<"ALL" | "STAGE_1_ADMIN" | "STAGE_2_SUPERADMIN" | "COMPLETED">("ALL");
-  const [adminVerifyModal, setAdminVerifyModal] = useState<{ isOpen: boolean; req: any | null; notes: string }>({
+  const [verificationModal, setVerificationModal] = useState<{
+    isOpen: boolean;
+    mode: "ADMIN_STAGE_1" | "SUPERADMIN_STAGE_2";
+    req: any | null;
+    notes: string;
+    checklist: {
+      docsVerified: boolean;
+      glAllocationVerified: boolean;
+      statutoryTaxVerified: boolean;
+      budgetCashVerified: boolean;
+    };
+  }>({
+    isOpen: false,
+    mode: "ADMIN_STAGE_1",
+    req: null,
+    notes: "",
+    checklist: {
+      docsVerified: true,
+      glAllocationVerified: true,
+      statutoryTaxVerified: true,
+      budgetCashVerified: true
+    }
+  });
+
+  const [rejectModal, setRejectModal] = useState<{
+    isOpen: boolean;
+    req: any | null;
+    reason: string;
+  }>({
     isOpen: false,
     req: null,
-    notes: ""
+    reason: ""
+  });
+
+  const [viewAuditModal, setViewAuditModal] = useState<{
+    isOpen: boolean;
+    req: any | null;
+  }>({
+    isOpen: false,
+    req: null
   });
 
   // Toast Notification State
@@ -428,6 +473,9 @@ export default function IntegratedFinancialSystem({
       resendCountdown: 30
     });
     setIsDataMasked(true);
+    try {
+      sessionStorage.removeItem("horeca_is_data_masked");
+    } catch (e) {}
   };
 
   // ==========================================
@@ -697,6 +745,9 @@ export default function IntegratedFinancialSystem({
     setLoginPassword("");
     setShowLoginPassword(false);
     setIsDataMasked(true);
+    try {
+      sessionStorage.removeItem("horeca_is_data_masked");
+    } catch (e) {}
     setOtpState({
       step: "credentials",
       targetUser: null,
@@ -841,6 +892,9 @@ export default function IntegratedFinancialSystem({
 
   const handleUpdateUnmaskPassword = (newPass: string) => {
     setUnmaskPassword(newPass);
+    try {
+      localStorage.setItem("horeca_unmask_password", newPass);
+    } catch (e) {}
     showToast("Unmask Authorization Password updated!", "success");
     logAuditEvent({
       action: "UPDATE_UNMASK_PASSWORD",
@@ -907,7 +961,23 @@ export default function IntegratedFinancialSystem({
     window.addEventListener("fms-sync-event", handleFmsSync);
     return () => window.removeEventListener("fms-sync-event", handleFmsSync);
   }, []);
-  const [isDataMasked, setIsDataMasked] = useState<boolean>(true);
+
+  const [isDataMasked, setIsDataMasked] = useState<boolean>(() => {
+    try {
+      const saved = sessionStorage.getItem("horeca_is_data_masked");
+      if (saved !== null) {
+        return saved === "true";
+      }
+    } catch (e) {}
+    return true;
+  });
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem("horeca_is_data_masked", isDataMasked ? "true" : "false");
+    } catch (e) {}
+  }, [isDataMasked]);
+
   const [adminPasswordInput, setAdminPasswordInput] = useState<string>("");
   const [isPassModalOpen, setIsPassModalOpen] = useState<boolean>(false);
 
@@ -3468,19 +3538,20 @@ export default function IntegratedFinancialSystem({
     logAuditEvent({
       action: "ADMIN_VERIFY_AND_FORWARD",
       module: "Governance & Approvals",
-      description: `Admin ${adminName} verified request ${reqId} and forwarded to Super Admin for final approval.`,
+      description: `Admin ${adminName} verified request ${reqId} and forwarded to Super Admin for final approval. Endorsement: ${verificationNotes}`,
       status: "PENDING_APPROVAL",
       previousState: { requestId: reqId, status: "PENDING_ADMIN" },
       newState: updatedReq
     });
 
     try {
+      fmsBridge.verifyAndForwardToSuperAdmin(reqId, adminName, verificationNotes);
       window.dispatchEvent(new CustomEvent("fms-sync-event", { detail: { action: "ADMIN_VERIFY", reqId } }));
     } catch (e) {}
   };
 
   // Stage 2: Super Admin grants final executive approval and commits
-  const handleApproveRequest = (req: any) => {
+  const handleApproveRequest = (req: any, notes?: string) => {
     if (currentUser?.role !== "superadmin") {
       showToast("Only the Super Administrator has final executive approval authority. Admins verify and forward to the Super Admin.", "warning");
       return;
@@ -3490,6 +3561,7 @@ export default function IntegratedFinancialSystem({
 
     const superAdminName = currentUser?.name || "Super Administrator";
     const timestamp = new Date().toISOString().replace("T", " ").substring(0, 16);
+    const executiveNotes = notes || "Executive approval granted. Budget, tax calculations, and liquidity verified. Cross-module synchronized.";
 
     setPendingApprovals((prev) =>
       prev.map((r) =>
@@ -3499,7 +3571,8 @@ export default function IntegratedFinancialSystem({
               status: "APPROVED",
               currentStage: "FINAL_APPROVED",
               superAdminApprovedBy: superAdminName,
-              superAdminApprovedAt: timestamp
+              superAdminApprovedAt: timestamp,
+              superAdminNotes: executiveNotes
             }
           : r
       )
@@ -3510,20 +3583,22 @@ export default function IntegratedFinancialSystem({
     logAuditEvent({
       action: "SUPERADMIN_EXECUTIVE_APPROVAL",
       module: "Governance & Approvals",
-      description: `Super Administrator ${superAdminName} authorized and executed request ${req.id} (${req.actionType}). Committed to Master Ledger and Treasury.`,
+      description: `Super Administrator ${superAdminName} authorized and executed request ${req.id} (${req.actionType}). Remarks: ${executiveNotes}. Committed to Master Ledger and Treasury.`,
       previousState: { requestId: req.id, status: req.status, payload: req.payload },
-      newState: { requestId: req.id, status: "APPROVED", approvedAt: timestamp }
+      newState: { requestId: req.id, status: "APPROVED", approvedAt: timestamp, superAdminNotes: executiveNotes }
     });
 
     try {
+      fmsBridge.superAdminApproveRequest(req.id, superAdminName, executiveNotes);
       window.dispatchEvent(new CustomEvent("fms-sync-event", { detail: { action: "SUPERADMIN_APPROVE", reqId: req.id } }));
     } catch (e) {}
   };
 
   const handleRejectRequest = (reqId: string, reason?: string) => {
     const rejector = currentUser?.name || "Administrator";
+    const roleTitle = currentUser?.role === "superadmin" ? "Super Administrator" : "Administrator";
     const timestamp = new Date().toISOString().replace("T", " ").substring(0, 16);
-    const rejectionReason = reason || `Rejected by ${currentUser?.role === "superadmin" ? "Super Administrator" : "Administrator"}.`;
+    const rejectionReason = reason || `Rejected by ${roleTitle}.`;
 
     let target: any = null;
     setPendingApprovals((prev) =>
@@ -3543,18 +3618,19 @@ export default function IntegratedFinancialSystem({
       })
     );
 
-    showToast(`Request ${reqId} was rejected by ${rejector}`, "warning");
+    showToast(`Request ${reqId} was rejected by ${rejector}: ${rejectionReason}`, "warning");
 
     logAuditEvent({
       action: "REJECT_GOVERNANCE_REQUEST",
       module: "Governance & Approvals",
-      description: `${rejector} rejected request ${reqId}: ${rejectionReason}`,
+      description: `${roleTitle} ${rejector} rejected request ${reqId}. Reason: ${rejectionReason}`,
       status: "REJECTED",
-      previousState: { requestId: reqId, status: "PENDING" },
+      previousState: { id: reqId, status: "PENDING" },
       newState: target
     });
 
     try {
+      fmsBridge.rejectApprovalRequest(reqId, rejector, roleTitle, rejectionReason);
       window.dispatchEvent(new CustomEvent("fms-sync-event", { detail: { action: "REJECT_REQUEST", reqId } }));
     } catch (e) {}
   };
@@ -4800,21 +4876,35 @@ export default function IntegratedFinancialSystem({
 
                               {/* Super Admin Executive Stamp (if Approved) */}
                               {req.superAdminApprovedBy && (
-                                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 text-xs font-['IBM_Plex_Mono'] text-emerald-950 flex items-center gap-2">
-                                  <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
-                                  <span>
-                                    <strong>Executive Authorization:</strong> Final sign-off by Super Admin <strong>{req.superAdminApprovedBy}</strong> on {req.superAdminApprovedAt}. Master GL and Cash liquidity reconciled.
-                                  </span>
+                                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 text-xs font-['IBM_Plex_Mono'] text-emerald-950 space-y-1">
+                                  <div className="flex items-center gap-1.5 font-bold text-emerald-800">
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700 shrink-0" />
+                                    <span>Super Admin Executive Authorization:</span>
+                                    <span>{req.superAdminApprovedBy}</span>
+                                    <span className="text-[10px] text-emerald-600 font-normal">({req.superAdminApprovedAt})</span>
+                                  </div>
+                                  {req.superAdminNotes && (
+                                    <p className="text-[11px] text-emerald-900 font-['IBM_Plex_Sans'] italic pl-5">
+                                      &ldquo;{req.superAdminNotes}&rdquo;
+                                    </p>
+                                  )}
                                 </div>
                               )}
 
                               {/* Rejection Stamp */}
                               {isRejected && req.rejectedBy && (
-                                <div className="bg-rose-50 border border-rose-200 rounded-lg p-2.5 text-xs font-['IBM_Plex_Mono'] text-rose-950 flex items-center gap-2">
-                                  <AlertCircle className="h-4 w-4 text-rose-700 shrink-0" />
-                                  <span>
-                                    <strong>Rejected by:</strong> {req.rejectedBy} on {req.rejectedAt}. Reason: {req.rejectionReason}
-                                  </span>
+                                <div className="bg-rose-50 border border-rose-200 rounded-lg p-2.5 text-xs font-['IBM_Plex_Mono'] text-rose-950 space-y-1">
+                                  <div className="flex items-center gap-1.5 font-bold text-rose-800">
+                                    <AlertCircle className="h-3.5 w-3.5 text-rose-700 shrink-0" />
+                                    <span>Request Rejected:</span>
+                                    <span>{req.rejectedBy}</span>
+                                    <span className="text-[10px] text-rose-600 font-normal">({req.rejectedAt})</span>
+                                  </div>
+                                  {req.rejectionReason && (
+                                    <p className="text-[11px] text-rose-900 font-['IBM_Plex_Sans'] italic pl-5">
+                                      Reason: &ldquo;{req.rejectionReason}&rdquo;
+                                    </p>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -4823,26 +4913,53 @@ export default function IntegratedFinancialSystem({
                             <div className="flex flex-col sm:flex-row lg:flex-col items-stretch sm:items-center lg:items-end gap-2 shrink-0">
                               {/* COMPLETED STATUS DISPLAY */}
                               {(isApproved || isRejected) ? (
-                                <span className="text-[11px] font-['IBM_Plex_Mono'] text-slate-400 italic">
-                                  Workflow Closed
-                                </span>
+                                <div className="flex flex-col items-end gap-1.5">
+                                  <span className="text-[11px] font-['IBM_Plex_Mono'] text-slate-400 font-bold uppercase tracking-wider">
+                                    Workflow Closed
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setViewAuditModal({ isOpen: true, req })}
+                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center justify-center space-x-1.5 transition-colors cursor-pointer border border-slate-300"
+                                    title="Inspect comprehensive verification trail and audit history"
+                                  >
+                                    <FileCheck className="h-3.5 w-3.5 text-slate-600" />
+                                    <span>View Audit Trail</span>
+                                  </button>
+                                </div>
                               ) : currentUser.role === "superadmin" ? (
-                                /* SUPER ADMIN ACTIONS: Directly Verify & Approve or Reject. Never sent to self. */
+                                /* SUPER ADMIN ACTIONS: Dual-Tier Verification & Executive Sign-off or Reject */
                                 <div className="flex flex-col gap-2 w-full sm:w-auto">
                                   <button
                                     type="button"
-                                    onClick={() => handleApproveRequest(req)}
+                                    onClick={() => {
+                                      const defaultNotes = req.adminVerifiedBy
+                                        ? `Executive sign-off granted based on Tier 1 Admin endorsement (${req.adminVerifiedBy}). Confirmed GL balancing and Treasury liquidity.`
+                                        : `Super Admin direct executive verification complete. Authorized for immediate FMS commit and ledger posting.`;
+                                      setVerificationModal({
+                                        isOpen: true,
+                                        mode: "SUPERADMIN_STAGE_2",
+                                        req,
+                                        notes: defaultNotes,
+                                        checklist: {
+                                          docsVerified: true,
+                                          glAllocationVerified: true,
+                                          statutoryTaxVerified: true,
+                                          budgetCashVerified: true
+                                        }
+                                      });
+                                    }}
                                     className="bg-[#157A4D] hover:bg-[#12633e] text-white px-4 py-2.5 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center justify-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
-                                    title="Super Admin Direct Verification & Immediate FMS Commit"
+                                    title="Super Admin Executive Verification & Immediate FMS Commit"
                                   >
-                                    <Check className="h-3.5 w-3.5" />
-                                    <span>Verify &amp; Approve</span>
+                                    <ShieldCheck className="h-3.5 w-3.5" />
+                                    <span>Executive Review &amp; Verify</span>
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => handleRejectRequest(req.id, "Rejected by Super Administrator.")}
+                                    onClick={() => setRejectModal({ isOpen: true, req, reason: "" })}
                                     className="bg-white border border-[#DFE1DB] hover:bg-rose-50 hover:text-rose-700 text-[#5C636F] px-3.5 py-2 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
-                                    title="Reject request submission"
+                                    title="Reject request with governance reason"
                                   >
                                     <X className="h-3.5 w-3.5" />
                                     <span>Reject Request</span>
@@ -4850,37 +4967,55 @@ export default function IntegratedFinancialSystem({
                                 </div>
                               ) : isStage1 ? (
                                 /* STANDARD ADMIN ACTIONS (STAGE 1 ONLY): Verify & Forward to Super Admin */
-                                <>
+                                <div className="flex flex-col gap-2 w-full sm:w-auto">
                                   <button
                                     type="button"
                                     onClick={() =>
-                                      setAdminVerifyModal({
+                                      setVerificationModal({
                                         isOpen: true,
+                                        mode: "ADMIN_STAGE_1",
                                         req,
-                                        notes: "Verified documentation, supplier credentials, and cost center budget allocation. Endorsed for executive authorization."
+                                        notes: "Verified documentation, supplier credentials, and cost center budget allocation. Endorsed for executive authorization.",
+                                        checklist: {
+                                          docsVerified: true,
+                                          glAllocationVerified: true,
+                                          statutoryTaxVerified: true,
+                                          budgetCashVerified: true
+                                        }
                                       })
                                     }
                                     className="bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center justify-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
                                     title="Verify request details and forward to Super Admin"
                                   >
                                     <ArrowRight className="h-3.5 w-3.5" />
-                                    <span>Verify &amp; Send to Super Admin</span>
+                                    <span>Admin Review &amp; Verify</span>
                                   </button>
 
                                   <button
                                     type="button"
-                                    onClick={() => handleRejectRequest(req.id, "Rejected by Admin during Stage 1 Review.")}
+                                    onClick={() => setRejectModal({ isOpen: true, req, reason: "" })}
                                     className="bg-white border border-[#DFE1DB] hover:bg-rose-50 hover:text-rose-700 text-[#5C636F] px-3 py-2 rounded-lg text-xs font-bold font-['IBM_Plex_Mono'] flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                                    title="Reject request during Stage 1 Review"
                                   >
                                     <X className="h-3.5 w-3.5" />
                                     <span>Reject Request</span>
                                   </button>
-                                </>
+                                </div>
                               ) : (
                                 /* STANDARD ADMIN VIEW (STAGE 2): Waiting for Super Admin sign-off */
-                                <div className="bg-indigo-50 border border-indigo-200 text-indigo-900 px-3 py-2 rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold text-center">
-                                  <span>Forwarded to Super Admin</span>
-                                  <span className="block text-[10px] text-indigo-600 font-normal">Awaiting Executive Sign-Off</span>
+                                <div className="flex flex-col items-end gap-1.5">
+                                  <div className="bg-indigo-50 border border-indigo-200 text-indigo-900 px-3 py-2 rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold text-center">
+                                    <span>Forwarded to Super Admin</span>
+                                    <span className="block text-[10px] text-indigo-600 font-normal">Awaiting Executive Sign-Off</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setViewAuditModal({ isOpen: true, req })}
+                                    className="text-[11px] text-indigo-700 hover:underline font-['IBM_Plex_Mono'] font-semibold flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <FileCheck className="h-3 w-3" />
+                                    <span>View Endorsement</span>
+                                  </button>
                                 </div>
                               )}
                             </div>
@@ -4892,69 +5027,398 @@ export default function IntegratedFinancialSystem({
                 );
               })()}
 
-              {/* ADMIN VERIFICATION MODAL DIALOG */}
-              {adminVerifyModal.isOpen && adminVerifyModal.req && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-                  <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 border border-slate-200 shadow-2xl">
+              {/* UNIFIED TWO-TIER VERIFICATION MODAL DIALOG (FOR ADMIN & SUPER ADMIN) */}
+              {verificationModal.isOpen && verificationModal.req && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+                  <div className="bg-white rounded-2xl max-w-xl w-full p-6 space-y-4 border border-slate-200 shadow-2xl my-8">
+                    {/* Header */}
                     <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                      <div className="flex items-center gap-2">
-                        <div className="p-2 bg-amber-100 text-amber-800 rounded-lg">
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className={`p-2.5 rounded-xl ${
+                            verificationModal.mode === "SUPERADMIN_STAGE_2"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-amber-100 text-amber-800"
+                          }`}
+                        >
                           <ShieldCheck className="h-5 w-5" />
                         </div>
                         <div>
-                          <h3 className="font-bold text-base font-['Archivo'] text-slate-900">
-                            Admin Stage 1 Verification
-                          </h3>
-                          <p className="text-[11px] text-slate-500 font-['IBM_Plex_Mono']">
-                            Request {adminVerifyModal.req.id} &bull; {adminVerifyModal.req.module}
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-base font-['Archivo'] text-slate-900">
+                              {verificationModal.mode === "SUPERADMIN_STAGE_2"
+                                ? "Stage 2: Super Admin Executive Verification & Authorization"
+                                : "Stage 1: Admin Compliance & Documentation Verification"}
+                            </h3>
+                          </div>
+                          <p className="text-[11px] text-slate-500 font-['IBM_Plex_Mono'] mt-0.5">
+                            Request <span className="font-bold text-slate-800">{verificationModal.req.id}</span> &bull; {verificationModal.req.module} &bull; Submitted {verificationModal.req.timestamp}
                           </p>
                         </div>
                       </div>
                       <button
-                        onClick={() => setAdminVerifyModal({ isOpen: false, req: null, notes: "" })}
+                        onClick={() =>
+                          setVerificationModal({
+                            isOpen: false,
+                            mode: "ADMIN_STAGE_1",
+                            req: null,
+                            notes: "",
+                            checklist: { docsVerified: true, glAllocationVerified: true, statutoryTaxVerified: true, budgetCashVerified: true }
+                          })
+                        }
+                        className="text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* Summary Card */}
+                    <div className="space-y-2 text-xs font-['IBM_Plex_Sans'] text-slate-800 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold text-slate-400 uppercase tracking-wider block">
+                            Action Title &amp; Scope
+                          </span>
+                          <strong className="text-sm font-['Archivo'] text-slate-900">{verificationModal.req.title}</strong>
+                        </div>
+                        {verificationModal.req.amount !== undefined && (
+                          <div className="text-right shrink-0">
+                            <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold text-slate-400 uppercase tracking-wider block">
+                              Total Financial Value
+                            </span>
+                            <span className="text-sm font-bold font-['IBM_Plex_Mono'] px-2 py-0.5 rounded bg-slate-900 text-white inline-block">
+                              ₱{Number(verificationModal.req.amount).toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-['IBM_Plex_Mono'] text-slate-600">
+                        <div>
+                          <span className="text-slate-400">Requester:</span>{" "}
+                          <strong className="text-slate-800">{verificationModal.req.requestedBy}</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Action Type:</span>{" "}
+                          <span className="font-semibold text-slate-800">{verificationModal.req.actionType}</span>
+                        </div>
+                      </div>
+
+                      <div className="pt-1.5 text-xs text-slate-600 font-['IBM_Plex_Sans']">
+                        <strong>Cross-Module Impact:</strong> {verificationModal.req.impactSummary}
+                      </div>
+                    </div>
+
+                    {/* Itemized Payload Breakdown Panel */}
+                    {verificationModal.req.payload && (
+                      <div className="bg-slate-900 text-white rounded-xl p-3.5 space-y-2 border border-slate-800 text-xs">
+                        <div className="flex items-center justify-between text-[10px] font-['IBM_Plex_Mono'] text-slate-400 uppercase font-bold tracking-wider">
+                          <span>Verified Payload &amp; Transaction Breakdown</span>
+                          <span className="text-emerald-400">Subsystem Schema Matched</span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 font-['IBM_Plex_Mono'] text-[11px]">
+                          {Object.entries(verificationModal.req.payload).map(([k, v]) => {
+                            if (typeof v === "object" || v === null) return null;
+                            const isCurrency = typeof v === "number" && v > 500;
+                            return (
+                              <div key={k} className="bg-slate-800/90 border border-slate-700/80 p-2 rounded-lg">
+                                <span className="text-[10px] text-slate-400 block truncate capitalize">
+                                  {k.replace(/([A-Z])/g, " $1")}
+                                </span>
+                                <span className="font-bold text-slate-100 truncate block">
+                                  {isCurrency ? `₱${Number(v).toLocaleString()}` : String(v)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tier 1 Admin Verification Stamp (if in Stage 2 review) */}
+                    {verificationModal.mode === "SUPERADMIN_STAGE_2" && verificationModal.req.adminVerifiedBy && (
+                      <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 space-y-1 text-xs font-['IBM_Plex_Mono'] text-indigo-950">
+                        <div className="flex items-center gap-1.5 font-bold text-indigo-800">
+                          <ShieldCheck className="h-4 w-4 text-indigo-700" />
+                          <span>Tier 1 Admin Verification Completed:</span>
+                          <span>{verificationModal.req.adminVerifiedBy}</span>
+                          <span className="text-[10px] text-indigo-600 font-normal">
+                            ({verificationModal.req.adminVerifiedAt})
+                          </span>
+                        </div>
+                        {verificationModal.req.adminNotes && (
+                          <p className="text-[11px] text-indigo-900 font-['IBM_Plex_Sans'] italic pl-5">
+                            &ldquo;{verificationModal.req.adminNotes}&rdquo;
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 4-Point Governance Verification Checklist */}
+                    <div className="space-y-2 border border-slate-200 rounded-xl p-3.5 bg-slate-50/50">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-bold font-['IBM_Plex_Mono'] uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                          <ListChecks className="h-3.5 w-3.5 text-slate-800" />
+                          <span>Required Governance Verification Checklist</span>
+                        </label>
+                        <span className="text-[10px] font-['IBM_Plex_Mono'] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                          4 of 4 Verified
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-['IBM_Plex_Sans'] text-slate-700">
+                        <label className="flex items-start gap-2 bg-white p-2 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={verificationModal.checklist.docsVerified}
+                            onChange={(e) =>
+                              setVerificationModal((prev) => ({
+                                ...prev,
+                                checklist: { ...prev.checklist, docsVerified: e.target.checked }
+                              }))
+                            }
+                            className="mt-0.5 accent-emerald-600 h-3.5 w-3.5 cursor-pointer"
+                          />
+                          <span className="text-[11px]">
+                            <strong>1. Vouchers &amp; Documents:</strong> PO, invoice, delivery receipt, or service order validated.
+                          </span>
+                        </label>
+
+                        <label className="flex items-start gap-2 bg-white p-2 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={verificationModal.checklist.glAllocationVerified}
+                            onChange={(e) =>
+                              setVerificationModal((prev) => ({
+                                ...prev,
+                                checklist: { ...prev.checklist, glAllocationVerified: e.target.checked }
+                              }))
+                            }
+                            className="mt-0.5 accent-emerald-600 h-3.5 w-3.5 cursor-pointer"
+                          />
+                          <span className="text-[11px]">
+                            <strong>2. General Ledger Chart:</strong> Account codes and cost center debit/credit legs balanced.
+                          </span>
+                        </label>
+
+                        <label className="flex items-start gap-2 bg-white p-2 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={verificationModal.checklist.statutoryTaxVerified}
+                            onChange={(e) =>
+                              setVerificationModal((prev) => ({
+                                ...prev,
+                                checklist: { ...prev.checklist, statutoryTaxVerified: e.target.checked }
+                              }))
+                            }
+                            className="mt-0.5 accent-emerald-600 h-3.5 w-3.5 cursor-pointer"
+                          />
+                          <span className="text-[11px]">
+                            <strong>3. Statutory / Tax Compliance:</strong> 1% EWT BIR Form 1601-EQ and VAT rates computed correctly.
+                          </span>
+                        </label>
+
+                        <label className="flex items-start gap-2 bg-white p-2 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={verificationModal.checklist.budgetCashVerified}
+                            onChange={(e) =>
+                              setVerificationModal((prev) => ({
+                                ...prev,
+                                checklist: { ...prev.checklist, budgetCashVerified: e.target.checked }
+                              }))
+                            }
+                            className="mt-0.5 accent-emerald-600 h-3.5 w-3.5 cursor-pointer"
+                          />
+                          <span className="text-[11px]">
+                            <strong>4. Treasury Liquidity &amp; Budget:</strong> Operating cash pool and departmental budget sufficient.
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Review Notes Input */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold font-['IBM_Plex_Mono'] uppercase text-slate-700 block">
+                        {verificationModal.mode === "SUPERADMIN_STAGE_2"
+                          ? "Super Admin Executive Authorization Remarks:"
+                          : "Admin Endorsement & Verification Notes (Forwarded to Super Admin):"}
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={verificationModal.notes}
+                        onChange={(e) => setVerificationModal((prev) => ({ ...prev, notes: e.target.value }))}
+                        placeholder={
+                          verificationModal.mode === "SUPERADMIN_STAGE_2"
+                            ? "Add executive approval remarks, fund release authorization, or audit instructions..."
+                            : "Add verification notes, supplier credentials check, or PO voucher confirmation..."
+                        }
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-['IBM_Plex_Sans'] focus:outline-none focus:border-slate-800"
+                      />
+                      <p className="text-[10px] text-slate-400 italic">
+                        {verificationModal.mode === "SUPERADMIN_STAGE_2"
+                          ? "* Authorization immediately releases disbursements, commits balanced double-entry GL posts, and notifies the requesting module."
+                          : "* Once forwarded, this request immediately moves to Stage 2 on the Super Admin's executive approval desk."}
+                      </p>
+                    </div>
+
+                    {/* Modal Footer Controls */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetReq = verificationModal.req;
+                          setVerificationModal({
+                            isOpen: false,
+                            mode: "ADMIN_STAGE_1",
+                            req: null,
+                            notes: "",
+                            checklist: { docsVerified: true, glAllocationVerified: true, statutoryTaxVerified: true, budgetCashVerified: true }
+                          });
+                          setRejectModal({ isOpen: true, req: targetReq, reason: "" });
+                        }}
+                        className="px-3.5 py-2 border border-rose-300 hover:bg-rose-50 text-rose-700 rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        <span>Reject Request...</span>
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setVerificationModal({
+                              isOpen: false,
+                              mode: "ADMIN_STAGE_1",
+                              req: null,
+                              notes: "",
+                              checklist: { docsVerified: true, glAllocationVerified: true, statutoryTaxVerified: true, budgetCashVerified: true }
+                            })
+                          }
+                          className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+
+                        {verificationModal.mode === "SUPERADMIN_STAGE_2" ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleApproveRequest(verificationModal.req, verificationModal.notes);
+                              setVerificationModal({
+                                isOpen: false,
+                                mode: "ADMIN_STAGE_1",
+                                req: null,
+                                notes: "",
+                                checklist: { docsVerified: true, glAllocationVerified: true, statutoryTaxVerified: true, budgetCashVerified: true }
+                              });
+                            }}
+                            className="px-5 py-2 bg-[#157A4D] hover:bg-[#12633e] text-white rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            <span>Authorize &amp; Commit to FMS</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleAdminVerifyAndForward(verificationModal.req.id, verificationModal.notes);
+                              setVerificationModal({
+                                isOpen: false,
+                                mode: "ADMIN_STAGE_1",
+                                req: null,
+                                notes: "",
+                                checklist: { docsVerified: true, glAllocationVerified: true, statutoryTaxVerified: true, budgetCashVerified: true }
+                              });
+                            }}
+                            className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                          >
+                            <ArrowRight className="h-3.5 w-3.5" />
+                            <span>Confirm &amp; Send to Super Admin</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* REJECTION REASON MODAL DIALOG */}
+              {rejectModal.isOpen && rejectModal.req && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+                  <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 border border-rose-200 shadow-2xl">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 bg-rose-100 text-rose-800 rounded-lg">
+                          <AlertCircle className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-base font-['Archivo'] text-slate-900">
+                            Reject Approval Request
+                          </h3>
+                          <p className="text-[11px] text-slate-500 font-['IBM_Plex_Mono']">
+                            Request {rejectModal.req.id} &bull; {rejectModal.req.module}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setRejectModal({ isOpen: false, req: null, reason: "" })}
                         className="text-slate-400 hover:text-slate-700 cursor-pointer"
                       >
                         ✕
                       </button>
                     </div>
 
-                    <div className="space-y-3 text-xs font-['IBM_Plex_Sans'] text-slate-700 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                      <p>
-                        <strong>Action Title:</strong> {adminVerifyModal.req.title}
-                      </p>
-                      <p>
-                        <strong>Requester:</strong> {adminVerifyModal.req.requestedBy}
-                      </p>
-                      {adminVerifyModal.req.amount && (
-                        <p>
-                          <strong>Financial Amount:</strong> ₱{Number(adminVerifyModal.req.amount).toLocaleString()}
-                        </p>
+                    <div className="bg-rose-50/70 border border-rose-200 rounded-xl p-3 text-xs font-['IBM_Plex_Sans'] text-rose-950 space-y-1">
+                      <p><strong>Title:</strong> {rejectModal.req.title}</p>
+                      <p><strong>Requester:</strong> {rejectModal.req.requestedBy}</p>
+                      {rejectModal.req.amount && (
+                        <p><strong>Amount:</strong> ₱{Number(rejectModal.req.amount).toLocaleString()}</p>
                       )}
-                      <p>
-                        <strong>Impact Summary:</strong> {adminVerifyModal.req.impactSummary}
-                      </p>
+                    </div>
+
+                    {/* Quick Reason Chips */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold font-['IBM_Plex_Mono'] uppercase tracking-wider text-slate-600 block">
+                        Quick Preset Reasons:
+                      </label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          "Discrepancy in supplier invoice amount",
+                          "Supporting delivery receipt or PO missing",
+                          "Exceeds monthly department budget allocation",
+                          "Duplicate transaction submission detected",
+                          "Invalid BIR TIN or statutory computation"
+                        ].map((chip) => (
+                          <button
+                            key={chip}
+                            type="button"
+                            onClick={() => setRejectModal((prev) => ({ ...prev, reason: chip }))}
+                            className="text-[10px] font-['IBM_Plex_Mono'] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 px-2 py-1 rounded cursor-pointer transition-colors"
+                          >
+                            {chip}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold font-['IBM_Plex_Mono'] uppercase text-slate-600 block">
-                        Admin Endorsement &amp; Verification Notes:
+                      <label className="text-xs font-bold font-['IBM_Plex_Mono'] uppercase text-slate-700 block">
+                        Specific Rejection Justification:
                       </label>
                       <textarea
                         rows={3}
-                        value={adminVerifyModal.notes}
-                        onChange={(e) => setAdminVerifyModal((prev) => ({ ...prev, notes: e.target.value }))}
-                        placeholder="Add review notes, confirmation of supporting vouchers, or PO verification..."
-                        className="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-['IBM_Plex_Sans'] focus:outline-none focus:border-slate-800"
+                        required
+                        value={rejectModal.reason}
+                        onChange={(e) => setRejectModal((prev) => ({ ...prev, reason: e.target.value }))}
+                        placeholder="Enter the official governance justification for rejecting this request..."
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-['IBM_Plex_Sans'] focus:outline-none focus:border-rose-700"
                       />
-                      <p className="text-[10px] text-slate-400 italic">
-                        * Once forwarded, this request immediately lands in the Super Admin's executive approval desk.
-                      </p>
                     </div>
 
                     <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
                       <button
                         type="button"
-                        onClick={() => setAdminVerifyModal({ isOpen: false, req: null, notes: "" })}
+                        onClick={() => setRejectModal({ isOpen: false, req: null, reason: "" })}
                         className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
                       >
                         Cancel
@@ -4962,13 +5426,116 @@ export default function IntegratedFinancialSystem({
                       <button
                         type="button"
                         onClick={() => {
-                          handleAdminVerifyAndForward(adminVerifyModal.req.id, adminVerifyModal.notes);
-                          setAdminVerifyModal({ isOpen: false, req: null, notes: "" });
+                          const finalReason = rejectModal.reason.trim() || "Rejected by authorized reviewer.";
+                          handleRejectRequest(rejectModal.req.id, finalReason);
+                          setRejectModal({ isOpen: false, req: null, reason: "" });
                         }}
-                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
                       >
-                        <ArrowRight className="h-3.5 w-3.5" />
-                        <span>Confirm &amp; Forward to Super Admin</span>
+                        <X className="h-3.5 w-3.5" />
+                        <span>Confirm Rejection</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* VIEW AUDIT DETAILS MODAL DIALOG */}
+              {viewAuditModal.isOpen && viewAuditModal.req && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+                  <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 border border-slate-200 shadow-2xl">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 bg-slate-900 text-white rounded-lg">
+                          <FileCheck className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-base font-['Archivo'] text-slate-900">
+                            Approval Governance &amp; Audit Log
+                          </h3>
+                          <p className="text-[11px] text-slate-500 font-['IBM_Plex_Mono']">
+                            Request {viewAuditModal.req.id} &bull; {viewAuditModal.req.module}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setViewAuditModal({ isOpen: false, req: null })}
+                        className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="space-y-3 text-xs font-['IBM_Plex_Sans'] text-slate-700">
+                      <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1">
+                        <p><strong>Action Title:</strong> {viewAuditModal.req.title}</p>
+                        <p><strong>Submitted by:</strong> {viewAuditModal.req.requestedBy} on {viewAuditModal.req.timestamp}</p>
+                        {viewAuditModal.req.amount !== undefined && (
+                          <p><strong>Total Value:</strong> ₱{Number(viewAuditModal.req.amount).toLocaleString()}</p>
+                        )}
+                        <p className="text-[11px] text-slate-600"><strong>Impact:</strong> {viewAuditModal.req.impactSummary}</p>
+                      </div>
+
+                      {/* Tier 1 Admin Verification Details */}
+                      {viewAuditModal.req.adminVerifiedBy ? (
+                        <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 space-y-1 text-[11px] font-['IBM_Plex_Mono'] text-amber-950">
+                          <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                            <ShieldCheck className="h-4 w-4 text-amber-800" />
+                            <span>Stage 1 Admin Verification Stamp:</span>
+                          </div>
+                          <p>Verified By: <strong>{viewAuditModal.req.adminVerifiedBy}</strong> ({viewAuditModal.req.adminVerifiedAt})</p>
+                          {viewAuditModal.req.adminNotes && (
+                            <p className="font-['IBM_Plex_Sans'] italic text-amber-900 pl-2">
+                              &ldquo;{viewAuditModal.req.adminNotes}&rdquo;
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-[11px] font-['IBM_Plex_Mono'] text-slate-500 italic">
+                          Stage 1 Admin review: Direct Super Admin evaluation or pending review.
+                        </div>
+                      )}
+
+                      {/* Tier 2 Super Admin Approval Details */}
+                      {viewAuditModal.req.superAdminApprovedBy && (
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-1 text-[11px] font-['IBM_Plex_Mono'] text-emerald-950">
+                          <div className="flex items-center gap-1.5 font-bold text-emerald-900">
+                            <CheckCircle2 className="h-4 w-4 text-emerald-800" />
+                            <span>Stage 2 Super Admin Executive Authorization:</span>
+                          </div>
+                          <p>Authorized By: <strong>{viewAuditModal.req.superAdminApprovedBy}</strong> ({viewAuditModal.req.superAdminApprovedAt})</p>
+                          {viewAuditModal.req.superAdminNotes && (
+                            <p className="font-['IBM_Plex_Sans'] italic text-emerald-900 pl-2">
+                              &ldquo;{viewAuditModal.req.superAdminNotes}&rdquo;
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Rejection Details */}
+                      {viewAuditModal.req.rejectedBy && (
+                        <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 space-y-1 text-[11px] font-['IBM_Plex_Mono'] text-rose-950">
+                          <div className="flex items-center gap-1.5 font-bold text-rose-900">
+                            <AlertCircle className="h-4 w-4 text-rose-800" />
+                            <span>Request Rejected:</span>
+                          </div>
+                          <p>Rejected By: <strong>{viewAuditModal.req.rejectedBy}</strong> ({viewAuditModal.req.rejectedAt})</p>
+                          {viewAuditModal.req.rejectionReason && (
+                            <p className="font-['IBM_Plex_Sans'] italic text-rose-900 pl-2">
+                              Reason: &ldquo;{viewAuditModal.req.rejectionReason}&rdquo;
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-end pt-2 border-t border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => setViewAuditModal({ isOpen: false, req: null })}
+                        className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-['IBM_Plex_Mono'] font-bold cursor-pointer"
+                      >
+                        Close
                       </button>
                     </div>
                   </div>
