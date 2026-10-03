@@ -4827,7 +4827,7 @@ export default function IntegratedFinancialSystem({
                                   Workflow Closed
                                 </span>
                               ) : currentUser.role === "superadmin" ? (
-                                /* SUPER ADMIN ACTIONS: Directly Verify & Approve (Commit to FMS) or Reject. Never sent to self. */
+                                /* SUPER ADMIN ACTIONS: Directly Verify & Approve or Reject. Never sent to self. */
                                 <div className="flex flex-col gap-2 w-full sm:w-auto">
                                   <button
                                     type="button"
@@ -4836,7 +4836,7 @@ export default function IntegratedFinancialSystem({
                                     title="Super Admin Direct Verification & Immediate FMS Commit"
                                   >
                                     <Check className="h-3.5 w-3.5" />
-                                    <span>Verify &amp; Approve (Commit to FMS)</span>
+                                    <span>Verify &amp; Approve</span>
                                   </button>
                                   <button
                                     type="button"
